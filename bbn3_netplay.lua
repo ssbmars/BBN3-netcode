@@ -126,7 +126,7 @@ local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		thisispvp = 1
 		if #c > 0 then
-			if c[#c][5] ~= 0x08 then --if this returns true, delay battle start until players connect
+			if c[1][5] ~= 0x08 then --if this returns true, delay battle start until players connect
 				memory.writebyte(0x020097F8,0x4)
 				waitingforpvp = 1
 			end
@@ -145,9 +145,7 @@ local function applyp2inputs()
 		end
 		memory.write_u8(0x203b401, c[1][2]) -- Player Input Delay
 		memory.write_u32_le(0x0203b418 + offset, c[1][3]) -- Player Control Inputs
-		if #c > 1 then
-			table.remove(c, 1)
-		end
+		table.remove(c, 1)
 	end
 end
 event.onmemoryexecute(applyp2inputs,0x080085A2,"ApplyP2Inputs")
@@ -163,7 +161,6 @@ event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
 -- Check if either Host or Client
 tcp = assert(socket.tcp())
-tcp:settimeout(TIMEOUT,'b')
 local ip, dnsdata = socket.dns.toip(HOST_IP)
 HOST_IP = ip
 -- Host
@@ -250,8 +247,6 @@ co = coroutine.create(function()
 			t[#t] = tonumber(t[#t])
 		end
 	end
-	
-	connected = nil
 end)
 
 -- Main Loop
