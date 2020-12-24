@@ -58,13 +58,15 @@ local function custsynchro()
 		if reg3 == 0x2 then
 			if #c < 1 then
 				emu.setregister("R3",0)
-			elseif #l > 0 then
+				return
+			end
+			if #l > 0 then
 				if l[2] <= 0 then
 					emu.setregister("R3",2)
 					s = {}
 					local i = 0
 				else
-					if c[4] == 0x2 then
+					if c[#c][4] == 0x2 then
 						l[2] = l[2] - 1
 					end
 					emu.setregister("R3",0)
@@ -123,23 +125,29 @@ event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
 local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		thisispvp = 1
-		if #c > 0 and c[5] ~= 0x08 then --if this returns true, delay battle start until players connect
-			memory.writebyte(0x020097F8,0x4)
-			waitingforpvp = 1
+		if #c > 0 then
+			if c[#c][5] ~= 0x08 then --if this returns true, delay battle start until players connect
+				memory.writebyte(0x020097F8,0x4)
+				waitingforpvp = 1
+			end
 		end
     end
 end
 event.onmemoryexecute(delaybattlestart,0x080048CC,"DelayBattle")
 
 local function applyp2inputs()
-	if thisispvp == 1 and #c >= 3 then
+	if thisispvp == 1 and #c > 0 then
 		-- Sync Player Information
 		local offset = 0
-		if c[3] % 256 <= memory.read_u8(0x203b410) then
-			offset = (math.abs((c[3] % 256) - memory.read_u8(0x203b410)) % 256)*0x10
+		if c[1][3] % 256 <= memory.read_u8(0x203b410) then
+			offset = (math.abs((c[1][3] % 256) - memory.read_u8(0x203b410)) % 256)
+			offset = offset*0x10
 		end
-		memory.write_u8(0x203b401, c[2]) -- Player Input Delay
-		memory.write_u32_le(0x0203b418 + offset, c[3]) -- Player Control Inputs
+		memory.write_u8(0x203b401, c[1][2]) -- Player Input Delay
+		memory.write_u32_le(0x0203b418 + offset, c[1][3]) -- Player Control Inputs
+		if #c > 1 then
+			table.remove(c, 1)
+		end
 	end
 end
 event.onmemoryexecute(applyp2inputs,0x080085A2,"ApplyP2Inputs")
@@ -159,10 +167,10 @@ tcp:settimeout(TIMEOUT,'b')
 local ip, dnsdata = socket.dns.toip(HOST_IP)
 HOST_IP = ip
 -- Host
+tcp:settimeout(0.016,'b')
 if PLAYERNUM == 1 then
 	tcp:bind(HOST_IP, HOST_PORT)
 	local server, err = tcp:listen(1)
-	tcp:settimeout(0.016,'b')
 	while not client do
 		if thisispvp == 1 then
 			memory.writebyte(0x020097F8,0x4)
@@ -170,7 +178,6 @@ if PLAYERNUM == 1 then
 		end
 		emu.frameadvance()
 	end
-	tcp:settimeout(0.5,'b')
 	print("You are the Server.")
 -- Client
 else
@@ -188,11 +195,6 @@ else
     memory.writebyte(0x0801A120,0x0)
     memory.writebyte(0x0801A121,0x2)
 end
--- Finalize Connection
-if client then
-	connected = true
-	print("Connected!")
-end
 
 -- Set who your Opponent is
 opponent = socket.udp()
@@ -200,15 +202,19 @@ if PLAYERNUM == 1 then
 	ip, port = client:getpeername()
 	opponent:setsockname(HOST_IP,HOST_PORT)
 	opponent:setpeername(ip, port)
-	client:close()
-	tcp:close()
 else
 	ip, port = tcp:getsockname()
 	opponent:setsockname(ip, port)
 	opponent:setpeername(HOST_IP, HOST_PORT)
-	tcp:close()
 end
 opponent:settimeout(1/60)
+
+-- Finalize Connection
+if client then
+	connected = true
+	print("Connected!")
+	tcp:close()
+end
 
 co = coroutine.create(function()
 	-- Loop for Received data
@@ -216,36 +222,41 @@ co = coroutine.create(function()
 	data = nil
 	err = nil
 	part = nil
-	while true do
+	local timer = 0
+	while timer < 60*5 do
 		data,err,part = opponent:receive()
 		if data == "disconnect" then
 			connected = nil
 			break
 		elseif data == "control" then -- Player Control Information
-			c = t
+			c[#c+1] = t
 			t = {}
+			timer = 0
 		elseif data == "stats" then -- Player Stats
 			s = t
 			t = {}
+			timer = 0
 		elseif data == "loadround" then -- Player Load Round Timer
 			l = t
 			t = {}
+			timer = 0
 		elseif data == "end" then -- End of Data Stream
 			t = {}
 			data = nil
 			err = nil
 			part = nil
+			timer = 0
 			coroutine.yield()
 		elseif data ~= nil then
 			t[#t+1] = data
 			t[#t] = tonumber(t[#t])
+			timer = 0
 		end
 		if err == "timeout" then
-			t = {}
+			timer = timer + 1
 			data = nil
 			err = nil
 			part = nil
-			coroutine.yield()
 		end
 	end
 end)
@@ -265,11 +276,11 @@ while true do
 		opponent:send(tostring(waitingforpvp)) -- Waiting for PVP Value
 		opponent:send(tostring(socket.gettime())) -- Socket Time
 		opponent:send("control")
-		if #l > 0 and c[4] == 0x0 and memory.read_u8(0x2036830) == 0x0 then
+		if #l > 0 and #c > 0 and c[#c][4] == 0x0 and memory.read_u8(0x2036830) == 0x0 then
 			opponent:send(tostring(PLAYERNUM))
 			opponent:send(tostring(0x3C))
 			opponent:send("loadround")
-		elseif #l > 0 and c[4] == 0x2 and memory.read_u8(0x2036830) == 0x2 then
+		elseif #l > 0 and #c > 0 and c[#c][4] == 0x2 and memory.read_u8(0x2036830) == 0x2 then
 			if l[2] <= 0 then
 				opponent:send(tostring(PLAYERNUM))
 				opponent:send(tostring(0))
@@ -293,7 +304,7 @@ while true do
 			connected = nil
 		end
 		
-		if #c > 0 and waitingforpvp == 1 and c[6] == 1 and c[7] > socket.gettime() then
+		if #c > 0 and waitingforpvp == 1 and c[1][6] == 1 and c[1][7] > socket.gettime() then
 			-- No longer waiting for PVP
 			waitingforpvp = 0
 		end
