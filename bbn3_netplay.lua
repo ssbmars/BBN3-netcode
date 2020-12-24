@@ -132,10 +132,14 @@ end
 event.onmemoryexecute(delaybattlestart,0x080048CC,"DelayBattle")
 
 local function applyp2inputs()
-	if thisispvp == 1 and #c > 0 then
+	if thisispvp == 1 and #c >= 3 then
 		-- Sync Player Information
+		local offset = 0
+		if c[3] % 256 <= memory.read_u8(0x203b410) then
+			offset = (math.abs((c[3] % 256) - memory.read_u8(0x203b410)) % 256)*0x10
+		end
 		memory.write_u8(0x203b401, c[2]) -- Player Input Delay
-		memory.write_u32_le(0x0203b418, c[3]) -- Player Control Input Buffer Timer
+		memory.write_u32_le(0x0203b418 + offset, c[3]) -- Player Control Inputs
 	end
 end
 event.onmemoryexecute(applyp2inputs,0x080085A2,"ApplyP2Inputs")
@@ -206,6 +210,46 @@ else
 end
 opponent:settimeout(1/60)
 
+co = coroutine.create(function()
+	-- Loop for Received data
+	t = {}
+	data = nil
+	err = nil
+	part = nil
+	while true do
+		data,err,part = opponent:receive()
+		if data == "disconnect" then
+			connected = nil
+			break
+		elseif data == "control" then -- Player Control Information
+			c = t
+			t = {}
+		elseif data == "stats" then -- Player Stats
+			s = t
+			t = {}
+		elseif data == "loadround" then -- Player Load Round Timer
+			l = t
+			t = {}
+		elseif data == "end" then -- End of Data Stream
+			t = {}
+			data = nil
+			err = nil
+			part = nil
+			coroutine.yield()
+		elseif data ~= nil then
+			t[#t+1] = data
+			t[#t] = tonumber(t[#t])
+		end
+		if err == "timeout" then
+			t = {}
+			data = nil
+			err = nil
+			part = nil
+			coroutine.yield()
+		end
+	end
+end)
+
 -- Main Loop
 while true do
 	
@@ -215,7 +259,7 @@ while true do
 		-- Send Data to Opponent
 		opponent:send(tostring(PLAYERNUM)) -- Player Number
 		opponent:send(tostring(memory.read_u8(0x0203b400))) -- Player Input Delay
-		opponent:send(tostring(memory.read_u32_le(0x0203B410))) -- Player Control Input Buffer Timer
+		opponent:send(tostring(memory.read_u32_le(0x0203B410))) -- Player Control Inputs
 		opponent:send(tostring(memory.read_u8(0x2036830))) -- Custom Screen Closed Value
 		opponent:send(tostring(memory.read_u8(0x020097F8))) -- Battle Check
 		opponent:send(tostring(waitingforpvp)) -- Waiting for PVP Value
@@ -233,35 +277,10 @@ while true do
 			end
 		end
 		opponent:send("end")
-	
-		-- Loop for Received data
-		t = {}
-		data = nil
-		err = nil
-		part = nil
-		while true do
-			data,err,part = opponent:receive()
-			if data == "disconnect" then
-				connected = nil
-				break
-			elseif data == "control" then -- Player Control Information
-				c = t
-				t = {}
-			elseif data == "stats" then -- Player Stats
-				s = t
-				t = {}
-			elseif data == "loadround" then -- Player Load Round Timer
-				l = t
-				t = {}
-			elseif data == "end" then -- End of Data Stream
-				break
-			elseif data ~= nil then
-				t[#t+1] = data
-				t[#t] = tonumber(t[#t])
-			end
-			if err == "timeout" then
-				break
-			end
+		
+		-- Receive Data from Opponent
+		if coroutine.status(co) == "suspended" then
+			coroutine.resume(co)
 		end
 	
 		-- Reset to Disconnect
