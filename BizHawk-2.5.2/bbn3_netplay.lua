@@ -84,24 +84,24 @@ local function sendhand()
 	if thisispvp == 1 then
 		if opponent == nil then return end
 		if emu.getregister("R1") == 0x02036830 and emu.getregister("R3") == 0x34 then
-			opponent:send(tostring(PLAYERNUM))
+			opponent:send(tostring(PLAYERNUM).."\n")
 			local i = 0
 			for i=0,0x10 do
-				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
+				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
 			end
-			opponent:send("stats")
+			opponent:send("stats".."\n")
 			return
 		end
 		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x4C then
-			opponent:send(tostring(PLAYERNUM))
+			opponent:send(tostring(PLAYERNUM).."\n")
 			local i = 0
 			for i=0,0x10 do
-				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
+				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
 			end
-			opponent:send("stats")
-			opponent:send(tostring(PLAYERNUM))
-			opponent:send(tostring(0x3C))
-			opponent:send("loadround")
+			opponent:send("stats".."\n")
+			opponent:send(tostring(PLAYERNUM).."\n")
+			opponent:send(tostring(0x3C).."\n")
+			opponent:send("loadround".."\n")
 			return
 		end
 	end
@@ -112,12 +112,12 @@ event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 local function loadmatch()
 	if thisispvp == 1 then
 		if opponent == nil then return end
-		opponent:send(tostring(PLAYERNUM))
+		opponent:send(tostring(PLAYERNUM).."\n")
 		local i = 0
 		for i=0,0x10 do
-			opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
+			opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
 		end
-		opponent:send("stats")
+		opponent:send("stats".."\n")
 	end
 end
 event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
@@ -167,7 +167,7 @@ tcp:settimeout(TIMEOUT,'b')
 local ip, dnsdata = socket.dns.toip(HOST_IP)
 HOST_IP = ip
 -- Host
-tcp:settimeout(0.016,'b')
+tcp:settimeout(0.032,'b')
 if PLAYERNUM == 1 then
 	tcp:bind(HOST_IP, HOST_PORT)
 	local server, err = tcp:listen(1)
@@ -195,25 +195,20 @@ else
     memory.writebyte(0x0801A120,0x0)
     memory.writebyte(0x0801A121,0x2)
 end
+tcp:settimeout(0.016,'b')
 
 -- Set who your Opponent is
-opponent = socket.udp()
+--opponent = socket.udp()
 if PLAYERNUM == 1 then
-	ip, port = client:getpeername()
-	opponent:setsockname(HOST_IP,HOST_PORT)
-	opponent:setpeername(ip, port)
+	opponent = client
 else
-	ip, port = tcp:getsockname()
-	opponent:setsockname(ip, port)
-	opponent:setpeername(HOST_IP, HOST_PORT)
+	opponent = tcp
 end
-opponent:settimeout(1/60)
 
 -- Finalize Connection
 if client then
 	connected = true
 	print("Connected!")
-	tcp:close()
 end
 
 co = coroutine.create(function()
@@ -222,43 +217,41 @@ co = coroutine.create(function()
 	data = nil
 	err = nil
 	part = nil
-	local timer = 0
-	while timer < 60*5 do
+	while true do
 		data,err,part = opponent:receive()
-		if data == "disconnect" then
+		if err == "timeout" then
+			print(tostring(data)..","..tostring(err))
+			data = nil
+			err = nil
+			part = nil
+			coroutine.yield()
+		end
+		if err == "closed" then
 			connected = nil
 			break
-		elseif data == "control" then -- Player Control Information
+		end
+		if data == "control" then -- Player Control Information
 			c[#c+1] = t
 			t = {}
-			timer = 0
 		elseif data == "stats" then -- Player Stats
 			s = t
 			t = {}
-			timer = 0
 		elseif data == "loadround" then -- Player Load Round Timer
 			l = t
 			t = {}
-			timer = 0
 		elseif data == "end" then -- End of Data Stream
 			t = {}
 			data = nil
 			err = nil
 			part = nil
-			timer = 0
 			coroutine.yield()
 		elseif data ~= nil then
 			t[#t+1] = data
 			t[#t] = tonumber(t[#t])
-			timer = 0
-		end
-		if err == "timeout" then
-			timer = timer + 1
-			data = nil
-			err = nil
-			part = nil
 		end
 	end
+	
+	connected = nil
 end)
 
 -- Main Loop
@@ -268,26 +261,26 @@ while true do
 	if opponent ~= nil and connected then
 	
 		-- Send Data to Opponent
-		opponent:send(tostring(PLAYERNUM)) -- Player Number
-		opponent:send(tostring(memory.read_u8(0x0203b400))) -- Player Input Delay
-		opponent:send(tostring(memory.read_u32_le(0x0203B410))) -- Player Control Inputs
-		opponent:send(tostring(memory.read_u8(0x2036830))) -- Custom Screen Closed Value
-		opponent:send(tostring(memory.read_u8(0x020097F8))) -- Battle Check
-		opponent:send(tostring(waitingforpvp)) -- Waiting for PVP Value
-		opponent:send(tostring(socket.gettime())) -- Socket Time
-		opponent:send("control")
+		opponent:send(tostring(PLAYERNUM).."\n") -- Player Number
+		opponent:send(tostring(memory.read_u8(0x0203b400)).."\n") -- Player Input Delay
+		opponent:send(tostring(memory.read_u32_le(0x0203B410)).."\n") -- Player Control Inputs
+		opponent:send(tostring(memory.read_u8(0x2036830)).."\n") -- Custom Screen Closed Value
+		opponent:send(tostring(memory.read_u8(0x020097F8)).."\n") -- Battle Check
+		opponent:send(tostring(waitingforpvp).."\n") -- Waiting for PVP Value
+		opponent:send(tostring(socket.gettime()).."\n") -- Socket Time
+		opponent:send("control".."\n")
 		if #l > 0 and #c > 0 and c[#c][4] == 0x0 and memory.read_u8(0x2036830) == 0x0 then
-			opponent:send(tostring(PLAYERNUM))
-			opponent:send(tostring(0x3C))
-			opponent:send("loadround")
+			opponent:send(tostring(PLAYERNUM).."\n")
+			opponent:send(tostring(0x3C).."\n")
+			opponent:send("loadround".."\n")
 		elseif #l > 0 and #c > 0 and c[#c][4] == 0x2 and memory.read_u8(0x2036830) == 0x2 then
 			if l[2] <= 0 then
-				opponent:send(tostring(PLAYERNUM))
-				opponent:send(tostring(0))
-				opponent:send("loadround")
+				opponent:send(tostring(PLAYERNUM).."\n")
+				opponent:send(tostring(0).."\n")
+				opponent:send("loadround".."\n")
 			end
 		end
-		opponent:send("end")
+		opponent:send("end".."\n")
 		
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
@@ -298,7 +291,6 @@ while true do
 		-- Will also disconnect the other player
 		local buttons = joypad.get()
 		if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
-			opponent:send("disconnect") -- You disconnected!
 			opponent:close()
 			opponent = nil
 			connected = nil
@@ -326,6 +318,7 @@ if opponent ~= nil then
 	opponent:close()
 	opponent = nil
 end
+tcp:close()
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")
 event.unregisterbyname("LoadBattle")
