@@ -1,0 +1,13 @@
+*/.ignore/*
+/rom/backup/*
+*.exe
+*.dll
+*.gba
+*.sav
+*.sym
+*.nlz
+*.lnk
+*.png
+*.bps
+*/*/SaveRam/*
+*/*/State/*
