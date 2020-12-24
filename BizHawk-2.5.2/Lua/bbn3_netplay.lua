@@ -58,13 +58,15 @@ local function custsynchro()
 		if reg3 == 0x2 then
 			if #c < 1 then
 				emu.setregister("R3",0)
-			elseif #l > 0 then
+				return
+			end
+			if #l > 0 then
 				if l[2] <= 0 then
 					emu.setregister("R3",2)
 					s = {}
 					local i = 0
 				else
-					if c[1][4] == 0x2 then
+					if c[#c][4] == 0x2 then
 						l[2] = l[2] - 1
 					end
 					emu.setregister("R3",0)
@@ -123,9 +125,11 @@ event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
 local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		thisispvp = 1
-		if #c > 0 and c[#c][5] ~= 0x08 then --if this returns true, delay battle start until players connect
-			memory.writebyte(0x020097F8,0x4)
-			waitingforpvp = 1
+		if #c > 0 then
+			if c[#c][5] ~= 0x08 then --if this returns true, delay battle start until players connect
+				memory.writebyte(0x020097F8,0x4)
+				waitingforpvp = 1
+			end
 		end
     end
 end
@@ -141,7 +145,9 @@ local function applyp2inputs()
 		end
 		memory.write_u8(0x203b401, c[1][2]) -- Player Input Delay
 		memory.write_u32_le(0x0203b418 + offset, c[1][3]) -- Player Control Inputs
-		table.remove(c, 1)
+		if #c > 1 then
+			table.remove(c, 1)
+		end
 	end
 end
 event.onmemoryexecute(applyp2inputs,0x080085A2,"ApplyP2Inputs")
@@ -189,11 +195,6 @@ else
     memory.writebyte(0x0801A120,0x0)
     memory.writebyte(0x0801A121,0x2)
 end
--- Finalize Connection
-if client then
-	connected = true
-	print("Connected!")
-end
 
 -- Set who your Opponent is
 opponent = socket.udp()
@@ -201,15 +202,19 @@ if PLAYERNUM == 1 then
 	ip, port = client:getpeername()
 	opponent:setsockname(HOST_IP,HOST_PORT)
 	opponent:setpeername(ip, port)
-	client:close()
-	tcp:close()
 else
 	ip, port = tcp:getsockname()
 	opponent:setsockname(ip, port)
 	opponent:setpeername(HOST_IP, HOST_PORT)
-	tcp:close()
 end
 opponent:settimeout(1/60)
+
+-- Finalize Connection
+if client then
+	connected = true
+	print("Connected!")
+	tcp:close()
+end
 
 co = coroutine.create(function()
 	-- Loop for Received data
@@ -217,7 +222,8 @@ co = coroutine.create(function()
 	data = nil
 	err = nil
 	part = nil
-	while true do
+	local timer = 0
+	while timer < 60*5 do
 		data,err,part = opponent:receive()
 		if data == "disconnect" then
 			connected = nil
@@ -225,28 +231,32 @@ co = coroutine.create(function()
 		elseif data == "control" then -- Player Control Information
 			c[#c+1] = t
 			t = {}
+			timer = 0
 		elseif data == "stats" then -- Player Stats
 			s = t
 			t = {}
+			timer = 0
 		elseif data == "loadround" then -- Player Load Round Timer
 			l = t
 			t = {}
+			timer = 0
 		elseif data == "end" then -- End of Data Stream
 			t = {}
 			data = nil
 			err = nil
 			part = nil
+			timer = 0
 			coroutine.yield()
 		elseif data ~= nil then
 			t[#t+1] = data
 			t[#t] = tonumber(t[#t])
+			timer = 0
 		end
 		if err == "timeout" then
-			t = {}
+			timer = timer + 1
 			data = nil
 			err = nil
 			part = nil
-			coroutine.yield()
 		end
 	end
 end)
