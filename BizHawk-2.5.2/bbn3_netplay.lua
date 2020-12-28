@@ -1,3 +1,10 @@
+InputData = 0x0203B400
+InputBufferLocal = InputData
+InputBufferRemote = InputData + 0x1
+InputStackSize = InputData + 0x3
+InputStackLocal = InputData + 0x10
+InputStackRemote = InputData + 0x18
+
 PLAYERNUM = 0
 HOST_IP = "127.0.0.1"
 HOST_PORT = 5738
@@ -9,14 +16,19 @@ connected = nil
 client = nil
 t = {}
 c = {}
+ctrl = {}
 l = {}
 s = {}
 data = nil
 err = nil
 part = nil
 waitingforpvp = 0
+waitingforround = 0
 thisispvp = 0
+delaybattletimer = 30
 opponent = nil
+acked = false
+timedout = 0
 
 menu = nil
 menu = forms.newform(300,140,"BBN3 Netplay",function()
@@ -48,7 +60,7 @@ local function custsynchro()
 	if thisispvp == 1 then
 		reg3 = emu.getregister("R3")
 		
-		if #s > 0 then
+		if type(s) == "table" and #s == 18 then
 			local i = 0
 			for i=0x0,0x10 do
 				memory.write_u32_le(0x02036950 + i*0x4,s[#s-0x10+i]) -- Player Stats
@@ -56,19 +68,13 @@ local function custsynchro()
 		end
 		
 		if reg3 == 0x2 then
-			if #c < 1 then
-				emu.setregister("R3",0)
-				return
-			end
-			if #l > 0 then
-				if l[2] <= 0 then
-					emu.setregister("R3",2)
-					s = {}
-					local i = 0
+			waitingforround = 1
+			if type(l) == "table" and #l > 0 then
+				memory.write_u8(InputBufferRemote, l[3])
+				if l[4] <= 0 and waitingforround and l[5] then
+					waitingforround = 0
+					return
 				else
-					if c[#c][4] == 0x2 then
-						l[2] = l[2] - 1
-					end
 					emu.setregister("R3",0)
 				end
 			else
@@ -84,24 +90,29 @@ local function sendhand()
 	if thisispvp == 1 then
 		if opponent == nil then return end
 		if emu.getregister("R1") == 0x02036830 and emu.getregister("R3") == 0x34 then
-			opponent:send(tostring(PLAYERNUM).."\n")
+			opponent:send("ack")
+			opponent:send("1,1,"..tostring(PLAYERNUM))
 			local i = 0
 			for i=0,0x10 do
-				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
+				opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
 			end
-			opponent:send("stats".."\n")
+			opponent:send("stats")
 			return
 		end
 		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x4C then
-			opponent:send(tostring(PLAYERNUM).."\n")
+			opponent:send("ack")
+			opponent:send("1,1,"..tostring(PLAYERNUM))
 			local i = 0
 			for i=0,0x10 do
-				opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
+				opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
 			end
-			opponent:send("stats".."\n")
-			opponent:send(tostring(PLAYERNUM).."\n")
-			opponent:send(tostring(0x3C).."\n")
-			opponent:send("loadround".."\n")
+			opponent:send("stats")
+			opponent:send("2,1,"..tostring(PLAYERNUM))
+			opponent:send("2,2,"..tostring(memory.read_u8(0x2036830))) -- Custom Screen Value
+			opponent:send("2,3,"..tostring(memory.read_u8(InputBufferLocal))) -- Player Input Delay
+			opponent:send("2,4,"..tostring(0x3C))
+			opponent:send("2,5,"..tostring(waitingforround))
+			opponent:send("loadround")
 			return
 		end
 	end
@@ -112,12 +123,13 @@ event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 local function loadmatch()
 	if thisispvp == 1 then
 		if opponent == nil then return end
-		opponent:send(tostring(PLAYERNUM).."\n")
+		opponent:send("ack")
+		opponent:send("1,1,"..tostring(PLAYERNUM))
 		local i = 0
 		for i=0,0x10 do
-			opponent:send(tostring(memory.read_u32_le(0x02036840 + i*0x4)).."\n") -- Player Stats
+			opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(0x02036840 + i*0x4))) -- Player Stats
 		end
-		opponent:send("stats".."\n")
+		opponent:send("stats")
 	end
 end
 event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
@@ -125,27 +137,70 @@ event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
 local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		thisispvp = 1
-		if #c > 0 then
-			if c[1][5] ~= 0x08 then --if this returns true, delay battle start until players connect
+		if #c == 0 then
+			memory.writebyte(0x020097F8,0x4)
+			waitingforpvp = 1
+		else
+			if waitingforpvp == 1 then
+				waitingforpvp = 0
+				if PLAYERNUM == 1 then
+					delaybattletimer = 30
+				else
+					local ping = 0
+					if type(c[1]) == "table" then
+						ping = math.min(30, math.abs(math.floor(((socket.gettime()*1000/60) % 100)) - c[1][5]))
+					end
+					delaybattletimer = 30 - ping
+				end
+			end
+			if waitingforpvp == 0 and c[1][4] == 0 and delaybattletimer > 0 then
+				delaybattletimer = delaybattletimer - 1
 				memory.writebyte(0x020097F8,0x4)
-				waitingforpvp = 1
+			elseif delaybattletimer > 0 then
+				memory.writebyte(0x020097F8,0x4)
+			end
+			if #c > 1 then
+				table.remove(c,1)
 			end
 		end
+	else
+		thisispvp = 0
     end
 end
 event.onmemoryexecute(delaybattlestart,0x080048CC,"DelayBattle")
 
 local function applyp2inputs()
-	if thisispvp == 1 and #c > 0 then
+	if thisispvp == 1 then
 		-- Sync Player Information
-		local offset = 0
-		if c[1][3] % 256 <= memory.read_u8(0x203b410) then
-			offset = (math.abs((c[1][3] % 256) - memory.read_u8(0x203b410)) % 256)
-			offset = offset*0x10
-		end
-		memory.write_u8(0x203b401, c[1][2]) -- Player Input Delay
-		memory.write_u32_le(0x0203b418 + offset, c[1][3]) -- Player Control Inputs
-		table.remove(c, 1)
+		if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
+			iBacklog = 1
+            while true do
+                local iCheck = memory.read_u8(InputStackRemote + 0x1 + (iBacklog*0x10) )
+                if iCheck == 0 then
+                    break
+                end
+                iBacklog = iBacklog + 1
+            end
+            if iBacklog > #c then
+                iWriteCount = #c
+            else
+                iWriteCount = iBacklog
+            end 
+            while iWriteCount > 0 do
+                iWriteCount = iWriteCount - 1
+                if type(c[#c - iWriteCount][2]) == "number" then
+                    memory.write_u32_le(InputStackRemote + iWriteCount*0x10, c[#c - iWriteCount][2]) --Player Button Inputs
+                    table.remove(c,#c - iWriteCount)
+                end
+            end
+        else
+            memory.write_u8(InputStackRemote+1,0x1)
+            local rollbackmode = nil
+            if rollbackmode then
+                local previoustimestamp = memory.read_u8(InputStackRemote)
+                memory.write_u8(InputStackRemote, math.floor((previoustimestamp + 0x1)%256))
+            end    
+        end
 	end
 end
 event.onmemoryexecute(applyp2inputs,0x080085A2,"ApplyP2Inputs")
@@ -160,28 +215,32 @@ end
 event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
 -- Check if either Host or Client
-tcp = assert(socket.tcp())
+tcp = socket.tcp()
 local ip, dnsdata = socket.dns.toip(HOST_IP)
 HOST_IP = ip
 -- Host
-tcp:settimeout(0.032,'b')
+tcp:settimeout(1 / (16777216 / 280896),'b')
 if PLAYERNUM == 1 then
 	tcp:bind(HOST_IP, HOST_PORT)
-	local server, err = tcp:listen(1)
-	while not client do
+	local server, err = nil, nil
+	while client == nil do
 		if thisispvp == 1 then
-			memory.writebyte(0x020097F8,0x4)
-			client = tcp:accept()
+			while server == nil do
+				server, err = tcp:listen(1)
+			end
+			if server ~= nil then
+				client = tcp:accept()
+			end
 		end
 		emu.frameadvance()
 	end
 	print("You are the Server.")
 -- Client
 else
-	while not client do
+	local err = nil
+	while client == nil do
 		if thisispvp == 1 then
-			memory.writebyte(0x020097F8,0x4)
-			client = tcp:connect(HOST_IP, HOST_PORT)
+			client, err = tcp:connect(HOST_IP, HOST_PORT)
 		end
 		emu.frameadvance()
 	end
@@ -192,14 +251,21 @@ else
     memory.writebyte(0x0801A120,0x0)
     memory.writebyte(0x0801A121,0x2)
 end
-tcp:settimeout(0.016,'b')
 
 -- Set who your Opponent is
---opponent = socket.udp()
+opponent = socket.udp()
+opponent:settimeout(1 / (16777216 / 280896))
 if PLAYERNUM == 1 then
-	opponent = client
+	ip, port = client:getpeername()
+	client:close()
+	tcp:close()
+	opponent:setsockname(HOST_IP, HOST_PORT)
+	opponent:setpeername(ip, port)
 else
-	opponent = tcp
+	ip, port = tcp:getsockname()
+	tcp:close()
+	opponent:setsockname(ip, port)
+	opponent:setpeername(HOST_IP, HOST_PORT)
 end
 
 -- Finalize Connection
@@ -210,41 +276,70 @@ end
 
 co = coroutine.create(function()
 	-- Loop for Received data
-	t = {}
+	--t = {}
+	ctrl = {}
 	data = nil
 	err = nil
 	part = nil
 	while true do
 		data,err,part = opponent:receive()
-		if err == "timeout" then
-			print(tostring(data)..","..tostring(err))
+		if data ~= nil then -- Receive Data
+			if data == "ack" then
+				acked = true
+				timedout = 0
+			end
+			if data == "end" and acked then -- End of Data Stream
+				data = nil
+				err = nil
+				part = nil
+				acked = false
+				coroutine.yield()
+			elseif data == "disconnect" and acked then
+				connected = nil
+				acked = false
+				break
+			elseif acked then
+				if data == "control" and #ctrl == 5 then -- Player Control Information
+					c[#c+1] = ctrl
+					ctrl = {}
+				end
+				if data == "stats" and #t == 18 then -- Player Stats
+					s = t
+					t = {}
+				end
+				if data == "loadround" and #t == 5 then -- Player Load Round Timer
+					l = t
+					t = {}
+				end
+				local str = {}
+				local w = ""
+				for w in data:gmatch("(%d+)") do
+					str[#str+1] = w
+				end
+				if #str > 0 then
+					if tonumber(str[1]) == 0 then
+						ctrl[tonumber(str[2])] = tonumber(str[3])
+					elseif tonumber(str[1]) == 1 then
+						t[tonumber(str[2])] = tonumber(str[3])
+					elseif tonumber(str[1]) == 2 then
+						t[tonumber(str[2])] = tonumber(str[3])
+					end
+				end
+			end
+		elseif err == "timeout" then
 			data = nil
 			err = nil
 			part = nil
-			coroutine.yield()
-		end
-		if err == "closed" then
-			connected = nil
-			break
-		end
-		if data == "control" then -- Player Control Information
-			c[#c+1] = t
-			t = {}
-		elseif data == "stats" then -- Player Stats
-			s = t
-			t = {}
-		elseif data == "loadround" then -- Player Load Round Timer
-			l = t
-			t = {}
-		elseif data == "end" then -- End of Data Stream
-			t = {}
-			data = nil
-			err = nil
-			part = nil
-			coroutine.yield()
-		elseif data ~= nil then
-			t[#t+1] = data
-			t[#t] = tonumber(t[#t])
+			acked = false
+			timedout = timedout + 1
+			if timedout >= memory.read_u8(InputBufferRemote) then
+				emu.yield()
+				if timedout >= 60*3 then
+					connected = nil
+					acked = false
+					break
+				end
+			end
 		end
 	end
 end)
@@ -256,26 +351,27 @@ while true do
 	if opponent ~= nil and connected then
 	
 		-- Send Data to Opponent
-		opponent:send(tostring(PLAYERNUM).."\n") -- Player Number
-		opponent:send(tostring(memory.read_u8(0x0203b400)).."\n") -- Player Input Delay
-		opponent:send(tostring(memory.read_u32_le(0x0203B410)).."\n") -- Player Control Inputs
-		opponent:send(tostring(memory.read_u8(0x2036830)).."\n") -- Custom Screen Closed Value
-		opponent:send(tostring(memory.read_u8(0x020097F8)).."\n") -- Battle Check
-		opponent:send(tostring(waitingforpvp).."\n") -- Waiting for PVP Value
-		opponent:send(tostring(socket.gettime()).."\n") -- Socket Time
-		opponent:send("control".."\n")
-		if #l > 0 and #c > 0 and c[#c][4] == 0x0 and memory.read_u8(0x2036830) == 0x0 then
-			opponent:send(tostring(PLAYERNUM).."\n")
-			opponent:send(tostring(0x3C).."\n")
-			opponent:send("loadround".."\n")
-		elseif #l > 0 and #c > 0 and c[#c][4] == 0x2 and memory.read_u8(0x2036830) == 0x2 then
-			if l[2] <= 0 then
-				opponent:send(tostring(PLAYERNUM).."\n")
-				opponent:send(tostring(0).."\n")
-				opponent:send("loadround".."\n")
-			end
+		opponent:send("ack")
+		opponent:send("0,1,"..tostring(PLAYERNUM)) -- Player Number
+		opponent:send("0,2,"..tostring(memory.read_u32_le(InputStackLocal))) -- Player Control Inputs
+		opponent:send("0,3,"..tostring(memory.read_u8(0x020097F8))) -- Battle Check
+		opponent:send("0,4,"..tostring(waitingforpvp)) -- Waiting for PVP Value
+		opponent:send("0,5,"..tostring(math.floor((socket.gettime()*1000/60) % 100))) -- Socket Time
+		opponent:send("control")
+		opponent:send("2,1,"..tostring(PLAYERNUM))
+		opponent:send("2,2,"..tostring(memory.read_u8(0x2036830))) -- Custom Screen Value
+		opponent:send("2,3,"..tostring(memory.read_u8(InputBufferLocal))) -- Player Input Delay
+		if type(l) == "table" and type(l[4]) == "number" and waitingforround == 1 and l[5] == 1 then
+			l[4] = l[4]-1
+			opponent:send("2,4,"..tostring(l[4]))
+		elseif type(l) == "table" and type(l[4]) == "number" and (waitingforround == 1 or l[5] == 1) then
+			opponent:send("2,4,"..tostring(l[4]))
+		else
+			opponent:send("2,4,"..tostring(0x3C))
 		end
-		opponent:send("end".."\n")
+		opponent:send("2,5,"..tostring(waitingforround))
+		opponent:send("loadround")
+		opponent:send("end")
 		
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
@@ -286,19 +382,16 @@ while true do
 		-- Will also disconnect the other player
 		local buttons = joypad.get()
 		if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
+			opponent:send("disconnect")
 			opponent:close()
 			opponent = nil
 			connected = nil
-		end
-		
-		if #c > 0 and waitingforpvp == 1 and c[1][6] == 1 and c[1][7] > socket.gettime() then
-			-- No longer waiting for PVP
-			waitingforpvp = 0
 		end
 	end
 	
 	if connected == nil then
 		if opponent ~= nil then
+			opponent:send("disconnect")
 			opponent:close()
 			opponent = nil
 		end
@@ -310,10 +403,10 @@ end
 
 thisispvp = 0
 if opponent ~= nil then
+	opponent:send("disconnect")
 	opponent:close()
 	opponent = nil
 end
-tcp:close()
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")
 event.unregisterbyname("LoadBattle")
