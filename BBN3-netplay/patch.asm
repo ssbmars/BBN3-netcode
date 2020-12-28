@@ -738,26 +738,27 @@ DelayBuffer:
 	bl		8008A44h
 	bl		8008C70h
 	tst		r0,r0
-	bne		@@tstskip
+	bne		@@checkdefinitions
 	ldr		r0,[r5,20h]		//update frame timestamp
 	add		r0,1h
 	str		r0,[r5,20h]
-@@tstskip:
+@@checkdefinitions:
 
 	//define values for the buffer
 	push	r3,r6
 	mov		r3,0A0h
 	add		r3,r5
-	ldrb	r0,[r3]
+	ldrb	r0,[r3,2h]
 	tst		r0,r0
 	bne		@@skipdefinitions
 
 	//p1 input lag value	(temporary code)
-	mov		r0,9h
+	mov		r0,0Eh
 	strb	r0,[r3]
+	strb	r0,[r3,1h]	//TEMP, write p2 input lag
 
 	//log size
-	mov		r0,0Ah
+	mov		r0,64h
 	strb	r0,[r3,2h]
 
 @@skipdefinitions:
@@ -787,6 +788,11 @@ DelayBuffer:
 	bl		8000B7Ch
 
 	//begin custom stuff
+@@rollbackcheck:
+	ldrb	r0,[r3,3h]
+	tst		r0,r0
+	bne		@@rollbackframe
+
 @@preparememcopy:
 	push	r3
 	ldrb	r6,[r3,2h]
@@ -837,7 +843,13 @@ DelayBuffer:
 	str		r2,[r1]
 	b		@@player2input
 
-	//apply input from <buffer> frames ago
+
+@@rollbackframe:
+	mov		r0,20h
+	add		r0,r5
+	ldrb	r0,[r0]
+
+	//p1: apply input based off its timestamp
 @@player1input:
 	mov		r4,r0	//move current timestamp into r4
 	ldrb	r6,[r3]
@@ -860,18 +872,14 @@ DelayBuffer:
 @@applyp1:
 	mov		r1,60h
 	add		r1,r5
-
 	ldr		r2,[r0]
 	str		r2,[r1]
-
-
-
 	//after overwriting, replace timestamp with the original byte value
 	mov		r0,42h
 	strb	r0,[r1]
 
 
-	//test for p2: apply input based off its timestamp
+	//p2: apply input based off its timestamp
 @@player2input:
 
 	mov		r4,20h
@@ -915,36 +923,14 @@ DelayBuffer:
 	strb	r0,[r1]
 
 
-/*
-@@p2memcopy:
-	mov		r4,0h
-	ldrb	r6,[r3,2h]	//read stack size
-	mov		r0,r6
-	lsl		r0,1h
-	add		r0,2h
-	lsl		r0,4h
-	add		r0,r3
-
-	mov		r1,r0
-	add		r1,10h
-
-@@p2memcopyloop:
-
-	ldr		r2,[r0]
-	str		r2,[r1]
-	sub		r0,10h
-	sub		r1,10h
-	add		r4,1h
-	cmp		r4,r6
-	ble		@@p2memcopyloop
-
-*/
 
 @@exitDelayBuffer:
 	pop		r3,r6,r15
 
 
 
+
+//---- end of the delaybuffer routine ----//
 
 
 
