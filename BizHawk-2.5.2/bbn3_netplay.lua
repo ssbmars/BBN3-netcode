@@ -1,94 +1,104 @@
-rollbackmode = 1	--toggle this between 1 and nil
-saferollback = 6
-resimulating = nil
-HideResim = 1
-savcount = 30	--amount of savestate frames to keep
-client.displaymessages(false)
-
-InputData = 0x0203B400
-InputStackSize = InputData + 0x5
-rollbackflag = InputData + 0x6
-SceneIndicator = 0x020097F8
-StartBattleFlipped = 0x0203B362
-PreloadStats = 0x0200F330
-
-PlayerData = 0x02036840
-	PD_s = 0x110	--PlayerData size
-
-BattleData_A = 0x02037274
-	BDA_s = 0xD4	--BattleData_A size
-		BDA_HP = 0x20 + BattleData_A --pointer for active HP value
-		BDA_HandSize = 0x16 + BattleData_A 
-
-			--the rest of these pointers aren't meant for anything currently
-			BDA_Act_State = 0x1 + BattleData_A 
-			-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
-			BDA_Act_Main = 0x2 + BattleData_A 
-			-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
-			BDA_Act_Sub = 0x5D + BattleData_A 
-			-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
-
-BattleData_B = 0x020384D0
-	BDB_s = 0x88	--BattleData_B size
-
-
-
-FullInputStack = {}  --input stack for rollback frames
-sav = {}  --savestate ID table
-CycleInputStack = {}
-
---define variables for gui.draw
-	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
-x_center = 120 
-y_center = 80
-
-
-
-PLAYERNUM = 0
-PORTNUM = nil
-HOST_IP = "127.0.0.1"
-HOST_PORT = 5738
-
 socket = require("socket.core")
 
-tcp = nil
-connected = nil
-connectedclient = nil
-t = {}
-c = {}
-ctrl = {}
-l = {}
-s = {}
-data = nil
-err = nil
-part = nil
-waitingforpvp = 0
-waitingforround = 0
-thisispvp = 0
-delaybattletimer = 10
-opponent = nil
-acked = false
-timedout = 0
-CanWriteRemoteChips = false
-droppedcount = 0
-RiBacklog = 0
-lastinput = 0
+--define variables that we might adjust sometimes
+	
+	BufferVal = 4		--input lag value in frames
+	debugmessages = 1	--toggle whether to print debug messages
+	rollbackmode = 1	--toggle this between 1 and nil
+	saferollback = 6
+	delaybattletimer = 10
+	savcount = 30	--amount of savestate frames to keep
+	client.displaymessages(false)
+
+
+--set empty variables at script start
+	
+	resimulating = nil
+	rift = 0
+	speedup = nil
+	HideResim = 1
+	emu.limitframerate(true)
+	
+	PLAYERNUM = 0
+	PORTNUM = nil
+	HOST_IP = "127.0.0.1"
+	HOST_PORT = 5738
+	tcp = nil
+	connected = nil
+	connectedclient = nil
+	t = {}
+	c = {}
+	ctrl = {}
+	l = {}
+	s = {}
+	data = nil
+	err = nil
+	part = nil
+	opponent = nil
+	acked = false
+	CanWriteRemoteStats = false
+	CanWriteRemoteChips = false
+	thisispvp = 0
+	waitingforpvp = 0
+	waitingforround = 0
+	timedout = 0
+	lastinput = 0
+	sav = {}  --savestate ID table
+	FullInputStack = {}  --input stack for rollback frames
+	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
+
+
+--define RAM offset variables
+	
+	InputData = 0x0203B400
+	InputStackSize = InputData + 0x5
+	rollbackflag = InputData + 0x6
+	SceneIndicator = 0x020097F8
+	StartBattleFlipped = 0x0203B362
+	PreloadStats = 0x0200F330
+	
+	PlayerData = 0x02036840
+		PD_s = 0x110	--PlayerData size
+	
+	BattleData_A = 0x02037274
+		BDA_s = 0xD4	--BattleData_A size
+		BDA_HP = 0x20 + BattleData_A --pointer for active HP value
+		BDA_HandSize = 0x16 + BattleData_A 
+	
+		--the rest of these pointers aren't meant for anything currently
+		BDA_Act_State = 0x1 + BattleData_A 
+		-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
+		BDA_Act_Main = 0x2 + BattleData_A 
+		-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
+		BDA_Act_Sub = 0x5D + BattleData_A 
+		-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
+	
+	BattleData_B = 0x020384D0
+		BDB_s = 0x88	--BattleData_B size
+
+
+--define variables for gui.draw
+	
+	x_center = 120 
+	y_center = 80
+	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
+
+
+
 
 menu = nil
 local delaymenu = 20
-
 while delaymenu > 0 do
 	delaymenu = delaymenu - 1
 	emu.frameadvance()
 end
 
+
+menu = forms.newform(300,140,"BBN3 Netplay",function()
+	return nil end)
 local windowsize = client.getwindowsize()
 local form_xpos = (client.xpos() + 120*windowsize - 142)
 local form_ypos = (client.ypos() + 80*windowsize + 10)
-
-menu = forms.newform(300,140,"BBN3 Netplay",function()
-	return nil
-end)
 forms.setlocation(menu, form_xpos , form_ypos)
 label_ip = forms.label(menu,"IP:",8,0,32,24)
 port_ip = forms.label(menu,"Port:",8,30,32,24)
@@ -111,24 +121,29 @@ end
 
 forms.destroyall()
 
-BufferVal = 4
 
-PORTNUM = PLAYERNUM - 1
-InputBufferLocal = InputData + PLAYERNUM
-InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
-PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
-PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+--define controller ports and offsets for individual players
+	
+	PORTNUM = PLAYERNUM - 1
+	InputBufferLocal = InputData + PLAYERNUM
+	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
+	PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
+	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+	
+	--this math only works for 1v1s
+	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
+	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
+	PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
+	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
+	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
+	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 
---this math only works for 1v1s
-InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
-InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
-PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
-PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
---this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
---and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 
-CanWriteRemoteStats = false
-
+local function debug(message)
+	if debugmessages == 1 then
+		print(message)
+	end
+end
 
 local function ReceiveAtStart()
 	if thisispvp == 1 and connected then
@@ -136,8 +151,6 @@ local function ReceiveAtStart()
 	end
 end
 event.onframestart(ReceiveAtStart)
-
-
 
 -- Sync Custom Screen
 local function custsynchro()
@@ -164,7 +177,10 @@ local function custsynchro()
 				if type(c[1]) == "table" and #c[1] > 0 then
 					if c[1][3] == 0x4 or memory.read_u8(SceneIndicator) == 0x4 then
 						memory.write_u16_le(0x0203b380, l[9])
+						debug("wrote the thing")
 					end
+				else
+					debug("nada")
 				end
 			end
 		end
@@ -193,7 +209,7 @@ local function sendhand()
 		--when this runs, it means you can safely send your chip hand and write over the remote player's hand
 		local WriteType = memory.read_u8(0x02036830)
 		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x34 and WriteType == 0x2 then
-			print("sent hand")
+			debug("sent hand")
 			opponent:send("ack")
 			opponent:send("1,1,"..tostring(PLAYERNUM))
 			local i = 0
@@ -225,7 +241,7 @@ event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 -- Sync Data on Match Load
 local function loadmatch()
 	if thisispvp == 1 then
-		if opponent == nil then print("nopponent") return end
+		if opponent == nil then debug("nopponent") return end
 		opponent:send("ack")
 		opponent:send("1,1,"..tostring(PLAYERNUM))
 		local i = 0
@@ -233,7 +249,7 @@ local function loadmatch()
 			opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(PreloadStats + i*0x4))) -- Player Stats
 		end
 		opponent:send("stats")
-		--print("sending stats at the proper time")
+		--debug("sending stats at the proper time")
 	end
 end
 event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
@@ -304,13 +320,43 @@ local function ApplyRemoteInputs()
 
 		--iterate the latest input's timestamp by 1 frame (it's necessary to do this first for this new routine)
 		local previoustimestamp = memory.read_u8(InputStackRemote)
-		memory.write_u8(InputStackRemote, math.floor((previoustimestamp + 0x1)%256))
+		local newtimestamp = math.floor((previoustimestamp + 0x1)%256)
+
+
+
+		--todo: compare local timestamp to computer time to see if it needs to speed up
+
+		if newtimestamp - memory.read_u8(0x0203b380) <= 0 then
+			if speedup == true then
+				emu.limitframerate(true)
+				speedup = nil
+			--	debug("caught up ".. newtimestamp)
+			end
+			memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
+
+		else
+			if not(speedup) then
+				emu.limitframerate(false)
+			end
+			speedup = true
+			--debug(rift)
+		end
+
+
+
+
 		memory.write_u8(InputStackRemote+0x2, lastinput)
 		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
 		memory.write_u8(InputStackRemote+1,0x1)
 		--	if an instance is behind, it will write timestamps for future frames. Then the entries with those timestamps
 		--will remain intact even after it catches back up. So when the instance's timing is synced, it will also
 		--need to clear out the future timestamps. I'm still looking for the best way to sync timing
+
+
+
+
+
+
 
 		if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
 
@@ -524,7 +570,7 @@ while true do
 
 	if CanWriteRemoteStats == true then
 		if type(s) == "table" and #s == 18 then
-			print("wrote stats")
+			debug("wrote remote stats")
 			local i = 0
 			for i=0x0,0x10 do
 				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Stats
@@ -532,7 +578,7 @@ while true do
 			end
 			CanWriteRemoteStats = false
 		else
-			print("not enough data to write stats")
+			debug("not enough data to write stats")
 		end
 	end
 
@@ -544,7 +590,7 @@ while true do
 				table.remove(s,#s-0x10+i)
 			end
 			CanWriteRemoteChips = false
-			print("wrote chips")
+			debug("wrote remote chips")
 		end
 	end
 
