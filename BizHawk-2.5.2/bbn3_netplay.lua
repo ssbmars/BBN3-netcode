@@ -2,22 +2,23 @@ socket = require("socket.core")
 
 --define variables that we might adjust sometimes
 	
-	BufferVal = 4		--input lag value in frames
-	debugmessages = 1	--toggle whether to print debug messages
+	BufferVal = 1		--input lag value in frames
+	debugmessages = 0	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
-	delaybattletimer = 10
+	delaybattletimer = nil
 	savcount = 30	--amount of savestate frames to keep
 	client.displaymessages(false)
+	HideResim = 0
+	TargetFrame = 167.427063
 
 
 --set empty variables at script start
 	
+	rollbackframes = 0
 	resimulating = nil
-	rift = 0
-	speedup = nil
-	HideResim = 1
 	emu.limitframerate(true)
+	framethrottle = true
 	
 	PLAYERNUM = 0
 	PORTNUM = nil
@@ -55,7 +56,10 @@ socket = require("socket.core")
 	rollbackflag = InputData + 0x6
 	SceneIndicator = 0x020097F8
 	StartBattleFlipped = 0x0203B362
+
 	PreloadStats = 0x0200F330
+		PLS_Style = PreloadStats + 0x4
+		PLS_HP = PreloadStats + 0x8
 	
 	PlayerData = 0x02036840
 		PD_s = 0x110	--PlayerData size
@@ -139,18 +143,194 @@ forms.destroyall()
 	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 
 
+
+co = coroutine.create(function()
+	-- Loop for Received data
+	--t = {}
+	ctrl = {}
+	data = nil
+	err = nil
+	part = nil
+	while true do
+		data,err,part = opponent:receive()
+		if data ~= nil then -- Receive Data
+			if data == "ack" then
+				acked = true
+				timedout = 0
+			end
+			if data == "end" and acked then -- End of Data Stream
+				data = nil
+				err = nil
+				part = nil
+				acked = false
+				
+				--	coroutine.yield()
+				
+			elseif data == "disconnect" and acked then
+				connected = nil
+				acked = false
+				break
+			elseif acked then
+				if data == "control" and #ctrl == 5 then -- Player Control Information
+					c[#c+1] = ctrl
+					ctrl = {}
+				end
+				if data == "stats" and #t == 19 then -- Player Stats
+					s = t
+					t = {}
+				end
+				if data == "loadround" and #t == 9 then -- Player Load Round Timer
+					l = t
+					t = {}
+				end
+				local str = {}
+				local w = ""
+				for w in data:gmatch("(%d+)") do
+					str[#str+1] = w
+				end
+				if #str > 0 then
+					if tonumber(str[1]) == 0 then
+						ctrl[tonumber(str[2])] = tonumber(str[3])
+					elseif tonumber(str[1]) == 1 then
+						t[tonumber(str[2])] = tonumber(str[3])
+					elseif tonumber(str[1]) == 2 then
+						t[tonumber(str[2])] = tonumber(str[3])
+					end
+				end
+			end
+		elseif err == "timeout" then
+			data = nil
+			err = nil
+			part = nil
+			acked = false
+			timedout = timedout + 1
+			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
+			--	emu.yield()
+				if timedout >= 60*5 then
+				--	connected = nil
+				--	acked = false
+				--	break
+				end
+			end
+			coroutine.yield()
+		else
+			coroutine.yield()
+		end
+	end
+end)
+
+
+
 local function debug(message)
 	if debugmessages == 1 then
 		print(message)
 	end
 end
 
-local function ReceiveAtStart()
-	if thisispvp == 1 and connected then
-		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+
+local function Init_Battle_Vis()
+
+
+	local style = {}
+	local function def_styles(...)
+		for pos, val in pairs({...}) do
+			style[pos] = val
+		end
+	end
+	def_styles("Normal","Guts","Custom","Team","Shield","Ground","Shadow","Bug")
+
+	local elem = {}
+	local function def_elems(...)
+		for pos, val in pairs({...}) do
+			elem[pos] = val
+		end
+	end
+	def_elems("Null","Elec","Heat","Aqua","Wood")
+
+	--define for local player
+	local stylebyte = memory.read_u8(PLS_Style)
+	vis_style_L = style[1+(bit.band(stylebyte, 0x38)/8)]
+	vis_elem_L = elem[1+bit.band(stylebyte, 0x7)]
+
+	--define for remote player
+	local stylebyte = math.floor(s[4] % 256)
+	vis_style_R1 = style[1+(bit.band(stylebyte, 0x38)/8)]
+	vis_elem_R1 = elem[1+bit.band(stylebyte, 0x7)]
+
+
+	--decide how much to offset the wait time, to sync up battle start times
+	--print(s[2] .." .. "..(math.floor((socket.gettime()*10000) % 0x10000)))
+
+	local localsent = TimeStatsWereSent
+	local remotesent = s[2] 
+	local receivedremote = math.floor((socket.gettime()*10000) % 0x10000)
+	
+	--math.floor( / 167.427063)
+
+	print(localsent .." - ".. remotesent .." .. ".. receivedremote)
+
+	
+	if localsent < remotesent then
+		--if you sent it first
+		sleeptimeoffset = (receivedremote - localsent) / 10
+	else
+		--if you sent it second
+		sleeptimeoffset = (receivedremote - remotesent) / 10
+	end
+--	print(sleeptimeoffset)
+	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
+
+	vis_looptimes = 60
+
+
+end
+
+
+local function Battle_Vis()
+
+	--left megaman
+	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
+
+	--right megaman
+	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
+
+	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
+end
+
+
+local function FrameStart()
+	if thisispvp == 1 then
+		if connected then 
+			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+		end
+
+		--compensate for local frame stuttering by temporarily speeding up
+		--make sure this also can compensate for the time spent on rollbacks
+		if not(resimulating) then
+			sockettime = math.floor((socket.gettime()*10000) % 0x10000)
+			if prevsockettime then 
+				timepast = math.floor((sockettime - prevsockettime) % 0x10000)
+				timerift = timerift + timepast - TargetFrame
+				gui.drawText(1, 14, math.floor(timerift), "white")
+				if timerift > TargetFrame then 
+					if framethrottle == true then 
+						emu.limitframerate(false) 
+						framethrottle = false
+				--		print(timepast .."  ".. timerift .." : ".. sockettime)
+						gui.drawText(1, 23, "FAST", "white")
+					end
+				else
+					if framethrottle == false then
+						emu.limitframerate(true)
+						framethrottle = true
+					end
+				end
+			end
+			prevsockettime = sockettime
+		end
 	end
 end
-event.onframestart(ReceiveAtStart)
+event.onframestart(FrameStart)
 
 -- Sync Custom Screen
 local function custsynchro()
@@ -212,51 +392,58 @@ local function sendhand()
 			debug("sent hand")
 			opponent:send("ack")
 			opponent:send("1,1,"..tostring(PLAYERNUM))
+			opponent:send("1,2,"..tostring(math.floor((socket.gettime()*10000) % 0x10000))) -- Socket Time
 			local i = 0
 			for i=0,0x10 do
-				opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(PlayerDataLocal + i*0x4))) -- Player Stats
+				opponent:send("1,"..tostring(i+3)..","..tostring(memory.read_u32_le(PlayerDataLocal + i*0x4))) -- Player Stats
 			end
 			opponent:send("stats")
 			CanWriteRemoteChips = true
 			return
 		end
 
-		--this is the signal that you can write the received player stats to ram
+		--this is the signal that it's safe to write the received player stats to ram
 		--it only triggers once, at the start of the match before players have loaded in
 		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x4C and WriteType == 0x1 then
 
 			CanWriteRemoteStats = true
 
-	--		local looptimes = 5
-	--		while looptimes > 0 do
-	--			socket.sleep(0.5)
-	--			looptimes = looptimes - 1
-	--		end
 
 		end
 	end
 end
 event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 
+
 -- Sync Data on Match Load
-local function loadmatch()
+local function SendStats()
 	if thisispvp == 1 then
 		if opponent == nil then debug("nopponent") return end
 		opponent:send("ack")
 		opponent:send("1,1,"..tostring(PLAYERNUM))
+		TimeStatsWereSent = math.floor((socket.gettime()*10000) % 0x10000) --we're saving this for later
+		opponent:send("1,2,"..tostring(TimeStatsWereSent)) -- Socket Time
 		local i = 0
 		for i=0,0x10 do
-			opponent:send("1,"..tostring(i+2)..","..tostring(memory.read_u32_le(PreloadStats + i*0x4))) -- Player Stats
+			opponent:send("1,"..tostring(i+3)..","..tostring(memory.read_u32_le(PreloadStats + i*0x4))) -- Player Stats
 		end
 		opponent:send("stats")
-		--debug("sending stats at the proper time")
+		debug("sending stats before initializing battle")
+		StallingBattle = true
+		received_stats = false
+		memory.write_u8(0x0200F320, 0x1) -- 0x1
+	else
+		memory.write_u8(0x0200F320, 0x0)
 	end
 end
-event.onmemoryexecute(loadmatch,0x0800761A,"LoadBattle")
+event.onmemoryexecute(SendStats,0x0800761A,"SendStats")
 
 local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		thisispvp = 1
+		prevsockettime = nil
+		timerift = 0
+
 		if #c == 0 then
 			memory.writebyte(SceneIndicator,0x4)
 			waitingforpvp = 1
@@ -265,18 +452,10 @@ local function delaybattlestart()
 		else
 			if waitingforpvp == 1 then
 				waitingforpvp = 0
-				if PLAYERNUM == 1 then
-					delaybattletimer = 10
-				else
-					local ping = 0
-					if type(c[1]) == "table" then
-						ping = math.min(30, math.abs(math.floor(((socket.gettime()*1000/60) % 100)) - c[1][5]))
-					end
-					delaybattletimer = 10 - ping
-				end
+				delaybattletimer = 10
 				if type(l) == "table" and #l > 0 then
 					if PLAYERNUM == 2 then
-						memory.write_u32_le(0x02009730, l[7])
+					--	memory.write_u32_le(0x02009730, l[7])
 						memory.write_u32_le(0x02009800, l[8])
 					end
 				end
@@ -284,8 +463,6 @@ local function delaybattlestart()
 			if waitingforpvp == 0 and c[1][4] == 0 and delaybattletimer > 0 then
 				delaybattletimer = delaybattletimer - 1
 				memory.writebyte(SceneIndicator,0x4)
-				gui.drawText(x_center, y_center - 10, "Battle routine, set", "white", nil, nil, nil, "center","middle")
-				gui.drawText(x_center, y_center + 10, "Execute!", "white", nil, nil, nil, "center","middle")
 			elseif delaybattletimer > 0 then
 				memory.writebyte(SceneIndicator,0x4)
 			end
@@ -318,44 +495,22 @@ local function ApplyRemoteInputs()
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
 
-		--iterate the latest input's timestamp by 1 frame (it's necessary to do this first for this new routine)
-		local previoustimestamp = memory.read_u8(InputStackRemote)
-		local newtimestamp = math.floor((previoustimestamp + 0x1)%256)
-
-
-
-		--todo: compare local timestamp to computer time to see if it needs to speed up
-
-		if newtimestamp - memory.read_u8(0x0203b380) <= 0 then
-			if speedup == true then
-				emu.limitframerate(true)
-				speedup = nil
-			--	debug("caught up ".. newtimestamp)
-			end
-			memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
-
-		else
-			if not(speedup) then
-				emu.limitframerate(false)
-			end
-			speedup = true
-			--debug(rift)
-		end
-
-
-
-
+		--write the last received input to the latest entry, This will be undone when the corresponding input is received
 		memory.write_u8(InputStackRemote+0x2, lastinput)
 		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
 		memory.write_u8(InputStackRemote+1,0x1)
-		--	if an instance is behind, it will write timestamps for future frames. Then the entries with those timestamps
-		--will remain intact even after it catches back up. So when the instance's timing is synced, it will also
-		--need to clear out the future timestamps. I'm still looking for the best way to sync timing
 
+		--iterate the latest input's timestamp by 1 frame (it's necessary to do this first for this new routine)
+		previoustimestamp = memory.read_u8(InputStackRemote)
+		newtimestamp = math.floor((previoustimestamp + 0x1)%256)
+		localtimestamp = memory.read_u8(0x0203b380)
 
-
-
-
+		--avoid iterating the remote timestamp if it would make it greater than the local timestamp
+		local tsdif = newtimestamp - localtimestamp
+		if tsdif > 0 then
+		else
+			memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
+		end
 
 
 		if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
@@ -377,14 +532,38 @@ local function ApplyRemoteInputs()
 				end
 
 				if match == true then
-					--put logic here to check for a rollback guess
-					memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
-					table.remove(c,1)
+					--rollback logic
+					--returns true if it's about to write to an input slot that was already executed
+					local iStatus = bit.check(memory.read_u8(InputStackRemote + 0x1 + pointer*0x10),1)
+					if iStatus == true then
+					--check whether the guessed input was correct
+						--record the guessed input before overwriting
+						local iGuess = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+						--write the received input (halfword)
+						memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+						--load the received input (halfword) into a variable for comparison
+						iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+						--compare both inputs, set the rollback flag if they don't match
+						if iGuess ~= iCorrected then
+							rbAmount =  math.floor(localtimestamp - (c[1][2] % 256) %256)
+							--this will use the pointer to decide how many frames back to jump
+							--it can rewrite the flag many times in a frame, but it will keep the largest value for that frame
+							if memory.read_u8(rollbackflag) < rbAmount then
+								memory.write_u8(rollbackflag, rbAmount)
+							end
+						end
+						table.remove(c,1)
+					else
+					--runs when the input was received on time
+						memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+						table.remove(c,1)
+					end
 				else
 					local i = 0
 					for i=0,(stacksize - 1) do
 						table.insert(CycleInputStack, 1, memory.read_u32_le(InputStackRemote + i*0x10))
 					end
+					local i = 0
 					for i=0,(stacksize - 1) do
 						memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
 						table.remove(CycleInputStack,#CycleInputStack)
@@ -424,6 +603,10 @@ local function closebattle()
 		opponent = nil
 		connected = nil
 	end
+	while #sav > 0 do
+		memorysavestate.removestate(sav[#sav])
+		table.remove(sav,#sav)
+	end
 end
 event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
@@ -447,7 +630,7 @@ if PLAYERNUM == 1 then
 		end
 		emu.frameadvance()
 	end
-	print("You are the Server.")
+	debug("You are the Server.")
 -- Client
 else
 	local err = nil
@@ -457,7 +640,7 @@ else
 		end
 		emu.frameadvance()
 	end
-	print("You are the Client.")
+	debug("You are the Client.")
 	--give host priority to the server side
     memory.writebyte(0x0801A11C,0x1)
     memory.writebyte(0x0801A11D,0x5)
@@ -484,83 +667,9 @@ end
 -- Finalize Connection
 if connectedclient then
 	connected = true
-	print("Connected!")
+	debug("Connected!")
 end
 
-co = coroutine.create(function()
-	-- Loop for Received data
-	--t = {}
-	ctrl = {}
-	data = nil
-	err = nil
-	part = nil
-	while true do
-		data,err,part = opponent:receive()
-		if data ~= nil then -- Receive Data
-			if data == "ack" then
-				acked = true
-				timedout = 0
-			end
-			if data == "end" and acked then -- End of Data Stream
-				data = nil
-				err = nil
-				part = nil
-				acked = false
-				
-				--	coroutine.yield()
-				
-			elseif data == "disconnect" and acked then
-				connected = nil
-				acked = false
-				break
-			elseif acked then
-				if data == "control" and #ctrl == 5 then -- Player Control Information
-					c[#c+1] = ctrl
-					ctrl = {}
-				end
-				if data == "stats" and #t == 18 then -- Player Stats
-					s = t
-					t = {}
-				end
-				if data == "loadround" and #t == 9 then -- Player Load Round Timer
-					l = t
-					t = {}
-				end
-				local str = {}
-				local w = ""
-				for w in data:gmatch("(%d+)") do
-					str[#str+1] = w
-				end
-				if #str > 0 then
-					if tonumber(str[1]) == 0 then
-						ctrl[tonumber(str[2])] = tonumber(str[3])
-					elseif tonumber(str[1]) == 1 then
-						t[tonumber(str[2])] = tonumber(str[3])
-					elseif tonumber(str[1]) == 2 then
-						t[tonumber(str[2])] = tonumber(str[3])
-					end
-				end
-			end
-		elseif err == "timeout" then
-			data = nil
-			err = nil
-			part = nil
-			acked = false
-			timedout = timedout + 1
-			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
-			--	emu.yield()
-				if timedout >= 60*5 then
-				--	connected = nil
-				--	acked = false
-				--	break
-				end
-			end
-			coroutine.yield()
-		else
-			coroutine.yield()
-		end
-	end
-end)
 
 
 
@@ -568,8 +677,33 @@ end)
 while true do
 	
 
+	if StallingBattle == true then
+
+		if connected then 
+			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+		end
+
+		if received_stats == true then
+			if vis_looptimes > 0 then
+				vis_looptimes = vis_looptimes - 1
+				Battle_Vis()
+			else
+				StallingBattle = false
+				memory.write_u8(0x0200F320, 0x0)
+				client.exactsleep(sleeptime)
+				prevsockettime = nil
+			end
+		else
+			if type(s) == "table" and #s == 19 then
+				Init_Battle_Vis()
+				received_stats = true
+			end
+		end
+	end
+
+
 	if CanWriteRemoteStats == true then
-		if type(s) == "table" and #s == 18 then
+		if type(s) == "table" and #s == 19 then
 			debug("wrote remote stats")
 			local i = 0
 			for i=0x0,0x10 do
@@ -583,7 +717,7 @@ while true do
 	end
 
 	if CanWriteRemoteChips == true then
-		if type(s) == "table" and #s == 18 then
+		if type(s) == "table" and #s == 19 then
 			local i = 0
 			for i=0x0,0x10 do
 				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Stats
@@ -605,7 +739,7 @@ while true do
 		opponent:send("0,2,"..tostring(memory.read_u32_le(InputStackLocal))) -- Player Control Inputs
 		opponent:send("0,3,"..tostring(memory.read_u8(SceneIndicator))) -- Battle Check
 		opponent:send("0,4,"..tostring(waitingforpvp)) -- Waiting for PVP Value
-		opponent:send("0,5,"..tostring(math.floor((socket.gettime()*1000/60) % 100))) -- Socket Time
+		opponent:send("0,5,"..tostring(math.floor((socket.gettime()*10000) % 0x10000))) -- Socket Time
 		opponent:send("control")
 		opponent:send("2,1,"..tostring(PLAYERNUM))
 		opponent:send("2,2,"..tostring(memory.read_u8(0x2036830))) -- Custom Screen Value
@@ -654,66 +788,69 @@ while true do
 		
 	--rollback rountine
 	if thisispvp == 1 then 
-		if rollbackmode then
 		
-			--create savestates
+
+			--check if we need to roll back
+		local rollbackframes = memory.read_u8(rollbackflag)
+		if rollbackframes > #sav then
+			rollbackframes = #sav
+		end
+
+		if rollbackframes > 0 then
+
+			--runs once when rollback begins, but not on subsequent rollback frames
 			if not(resimulating) then
-				table.insert(sav, 1, memorysavestate.savecorestate())
-				--delete the oldest savestate after 20 frames
-				if #sav > savcount then
-					memorysavestate.removestate(sav[#sav])
-					table.remove(sav,#sav)
+				resimulating = true
+				--save the corrected input stack
+				local stacksize = memory.read_u8(InputStackSize)
+				local i = 0
+				for i=0,(stacksize*4) do
+					table.insert(FullInputStack, 1, memory.read_u32_le(InputStackLocal + i*0x4))
+				end
+
+				memorysavestate.loadcorestate(sav[rollbackframes])
+
+				local i = 0
+				for i=0,(stacksize*4) do
+					memory.write_u32_le(InputStackLocal + i*0x4,FullInputStack[#FullInputStack])
+					table.remove(FullInputStack,#FullInputStack)
+				end
+
+				emu.limitframerate(false)
+				framethrottle = false
+			--	prevsockettime = math.floor((socket.gettime()*10000) % 0x10000) --make sure it can compensate for the time spent resimulating
+				if HideResim then
+					client.invisibleemulation(true)
 				end
 			end
 
-			--check if we need to roll back
-			local rollbackframes = memory.read_u8(rollbackflag)
-				if rollbackframes > savcount-1 then
-					rollbackframes = savcount-1
-				end
+			--count down remaining rollback frames by 1
+			rollbackframes = rollbackframes - 1
+			memory.write_u8(rollbackflag,rollbackframes)
+			gui.drawText(1, 23, "     ".. rollbackframes, "white")
 
-			if rollbackframes > 0 then
+			--if it's the final rollback frame, queue it up to display the next frame
+			if rollbackframes == 0 then
+				client.invisibleemulation(false)
+			end
 
-				--runs once when rollback begins, but not on subsequent rollback frames
-				if not(resimulating) then
-					resimulating = 1
-					--save the corrected input stack
-					local stacksize = memory.read_u8(InputStackSize)
-					local i = 0
-					for i=0,(stacksize*2) do
-						table.insert(FullInputStack, 1, memory.read_u32_le(InputStackLocal + i*0x8))
-					end
+		else
+			--default branch when not in a rollback frame
+			if resimulating then
+				--restore normal speed if just now exiting out of rollback
+				resimulating = nil
+				emu.limitframerate(true)
+				framethrottle = true
+			end
+		end
 
-					memorysavestate.loadcorestate(sav[rollbackframes])
-
-					for i=0,(stacksize*2) do
-						memory.write_u32_le(InputStackLocal + i*0x8,FullInputStack[#FullInputStack])
-						table.remove(FullInputStack,#FullInputStack)
-					end
-
-
-					if HideResim then
-						client.invisibleemulation(true)
-						emu.limitframerate(false)
-					end
-				end
-
-				--count down remaining rollback frames by 1
-				rollbackframes = rollbackframes - 1
-				memory.write_u8(rollbackflag,rollbackframes)
-
-				--if it's the final rollback frame, queue it up to display the next frame
-				if rollbackframes == 0 then
-					client.invisibleemulation(false)
-				end
-
-			else
-				--default branch when not in a rollback frame
-				if resimulating then
-					--restore normal speed if just now exiting out of rollback
-					resimulating = nil
-					emu.limitframerate(true)
-				end
+		--create savestates
+		if not(resimulating) then
+			table.insert(sav, 1, memorysavestate.savecorestate())
+			--delete the oldest savestate after 20 frames
+			if #sav > savcount then
+				memorysavestate.removestate(sav[#sav])
+				table.remove(sav,#sav)
 			end
 		end
 	end
@@ -727,13 +864,9 @@ if opponent ~= nil then
 	opponent:close()
 	opponent = nil
 end
-while #sav > 0 do
-	memorysavestate.removestate(sav[#sav])
-	table.remove(sav,#sav)
-end
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")
-event.unregisterbyname("LoadBattle")
+event.unregisterbyname("SendStats")
 event.unregisterbyname("SendHand")
 event.unregisterbyname("ApplyRemoteInputs")
 event.unregisterbyname("CloseBattle")
