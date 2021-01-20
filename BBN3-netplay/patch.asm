@@ -718,6 +718,16 @@ Nothing that branches to any of this code uses hardcoded addresses, instead they
 
 
 
+StallBattleStart:
+
+	sub		r1,20h
+@@loopstart:
+	ldrb	r0,[r1]
+	tst		r0,r0
+	bne		@@loopstart
+
+	add		sp,54h
+	pop		r4,r6,r7,r15
 
 
 
@@ -748,21 +758,35 @@ DelayBuffer:
 	push	r3,r6
 	mov		r3,0A0h
 	add		r3,r5
-	ldrb	r0,[r3,2h]
+	ldrb	r0,[r3,5h]
 	tst		r0,r0
-	bne		@@skipdefinitions
+	bne		@@vanillafunction	//skip if the values are already defined
 
 	//p1 input lag value	(temporary code)
-	mov		r0,0Eh
-	strb	r0,[r3]
-	strb	r0,[r3,1h]	//TEMP, write p2 input lag
+;	mov		r0,04h
+;	strb	r0,[r3,1h]
+;	strb	r0,[r3,2h]		//TEMP, write p2 input lag
 
 	//log size
-	mov		r0,64h
-	strb	r0,[r3,2h]
+	mov		r0,28h
+	strb	r0,[r3,5h]
 
-@@skipdefinitions:
+	//test- set self as player 2
+		//seems like it works if done at this stage
+;	mov		r0,1h
+;	strb	r0,[r5,2h]
+	bl		scriptsetport
 
+;	mov		r0,1h	//port number pointer, goes 0-3
+;	strb	r0,[r3]
+
+
+@@vanillafunction:
+	push	r7
+	ldrb	r7,[r3]
+	cmp		r7,4h
+	blt		.+4h
+	mov		r7,3h
 	//normal operation
 	mov		r0,30h
 	add		r0,r5
@@ -789,29 +813,41 @@ DelayBuffer:
 
 	//begin custom stuff
 @@rollbackcheck:
-	ldrb	r0,[r3,3h]
+	ldrb	r0,[r3,6h]
 	tst		r0,r0
 	bne		@@rollbackframe
 
 @@preparememcopy:
 	push	r3
-	ldrb	r6,[r3,2h]
+	ldrb	r6,[r3,5h]
 	mov		r0,r6
+		//lsl		r6,2h
 	lsl		r0,4h
 	add		r0,r3
 	mov		r3,0h
 	mov		r1,r0
-	add		r1,10h
+	add		r1,10h	//part of temp ver
+
+		//add		r1,1Ch
+		//add		r0,0Ch
 	
 @@memcopyloop:
+
+	//temporary version, just for 2 player mode
 	ldr		r2,[r0]		//cycle p1's stack
 	str		r2,[r1]
-	add		r0,8h	
-	add		r1,8h
+	add		r0,4h
+	add		r1,4h
 	ldr		r2,[r0]		//cycle p2's stack
 	str		r2,[r1]
-	sub		r0,18h
-	sub		r1,18h
+	sub		r0,14h
+	sub		r1,14h
+	//end of temp version
+
+		//ldr		r2,[r0]
+		//str		r2,[r1]
+		//sub		r0,4h
+		//sub		r1,4h
 
 	add		r3,1h
 	cmp		r3,r6
@@ -823,8 +859,9 @@ DelayBuffer:
 	//write latest input to buffer
 @@writelatest:
 	mov		r0,r4
-	mov		r1,10h		//define destination address
-	add		r1,r3
+	lsl		r1,r7,2h	//use port # as pointer
+	add		r1,10h
+	add		r1,r3		//finish setting the local stack position
 	ldr		r2,[r0]
 	str		r2,[r1]
 
@@ -837,11 +874,12 @@ DelayBuffer:
 	mov		r4,r2
 	lsr		r4,1Ch
 	cmp		r4,5h
-	bne		@@player1input
-	mov		r1,60h
+	bne		@@localinput
+	lsl		r1,r7,4h
+	add		r1,60h
 	add		r1,r5
 	str		r2,[r1]
-	b		@@player2input
+	b		@@scriptupdatep2
 
 
 @@rollbackframe:
@@ -849,28 +887,32 @@ DelayBuffer:
 	add		r0,r5
 	ldrb	r0,[r0]
 
-	//p1: apply input based off its timestamp
-@@player1input:
-	mov		r4,r0	//move current timestamp into r4
-	ldrb	r6,[r3]
+	//local player: apply input based off its timestamp
+@@localinput:
+	mov		r4,r0		//move current timestamp into r4
+	mov		r6,1h		//locate input buffer based on player #
+	add		r6,r7
+	ldrb	r6,[r3,r6]	//read input buffer
 	sub		r4,r6
 	lsl		r4,18h
-	lsr		r4,18h	//this is the timestamp from <buffer> frames ago, sanitized
-	mov		r0,r3
-	ldrb	r6,[r3,2h]
+	lsr		r4,18h		//this is the timestamp from <buffer> frames ago, sanitized
+	lsl		r0,r7,2h	//set input stack pointer
+	add		r0,r3
+	ldrb	r6,[r3,5h]
 	mov		r2,0h
 
-@@p1timestampcheckloop:
+@@localinputsearch:
 	add		r0,10h
 	ldrb	r1,[r0]
 	cmp		r1,r4
-	beq		@@applyp1
+	beq		@@applylocal
 	add		r2,1h
 	cmp		r2,r6
-	ble		@@p1timestampcheckloop
+	ble		@@localinputsearch
 
-@@applyp1:
-	mov		r1,60h
+@@applylocal:
+	lsl		r1,r7,4h
+	add		r1,60h
 	add		r1,r5
 	ldr		r2,[r0]
 	str		r2,[r1]
@@ -879,21 +921,46 @@ DelayBuffer:
 	strb	r0,[r1]
 
 
+//signal to the script that we're about to apply p2's input for this frame
+@@scriptupdatep2:
+	bl		scriptinjectinputs
 	//p2: apply input based off its timestamp
 @@player2input:
-
 	mov		r4,20h
 	add		r4,r5
 	ldrb	r4,[r4]		//fetch latest timestamp
-	ldrb	r6,[r3,1h]	//fetch buffer value
+	mov		r2,0h		//set r2 to the first port
+
+@@loopforeachport:
+//loop might begin here
+	cmp		r2,r7	//if current port # == local port, skip it
+	bne		.+4h
+	add		r2,1h
+	cmp		r2,3h	//exit loop if pointer exceeds the 4th port
+	bgt		@@exitDelayBuffer
+	push	r2
+	mov		r6,1h
+	add		r6,r2
+	ldrb	r6,[r3,r6]	//read buffer for current port
+	tst		r6,r6		//skip most of the loop if buffer == 0 (port not in use by a player)
+	beq		.+4h
+	b		@@continue
+	lsl		r1,r2,4h
+	add		r1,60h
+	add		r1,r5
+	b		@@noremoteinput
+
+@@continue:	
 	sub		r4,r6
 	lsl		r4,18h
 	lsr		r4,18h		//timestamp value to look for
-	ldrb	r6,[r3,2h]
-	mov		r0,8h
-	add		r0,r3	
-
+	ldrb	r6,[r3,5h]
+	
+	//define the stack pointer in r0 then set it to the stack address
+	lsl		r0,r2,2h
+	add		r0,r3
 	mov		r2,0h
+
 
 @@p2timestampcheckloop:
 	add		r0,10h
@@ -903,29 +970,59 @@ DelayBuffer:
 	add		r2,1h
 	cmp		r2,r6
 	ble		@@p2timestampcheckloop
-	mov		r1,70h
+	//run this section only if there wasn't a valid input in the entire stack
+	pop		r2
+	push	r2
+	lsl		r1,r2,4h
+	add		r1,60h
 	add		r1,r5
-	b		@@p2thereisnoinput
+	b		@@noremoteinput
 
 @@applyp2:
-	mov		r1,70h
+	//if on the cust screen, skip the guess check
+	ldr		r2,[r0]
+	lsr		r2,1Ch
+	tst		r2,r2
+	bne		@@skipguessflag
+
+	//check if it's a guess
+	ldrb	r2,[r0,1h]
+	tst		r2,r2
+	beq		@@skipguessflag
+
+	mov		r2,2h
+	strb	r2,[r0,1h]
+
+	@@skipguessflag:
+	//apply
+	pop		r2
+	push	r2
+	lsl		r1,r2,4h
+	add		r1,60h
 	add		r1,r5
 	ldr		r2,[r0]
 	str		r2,[r1]
 	b		@@applyp2end
 
-@@p2thereisnoinput:
+@@noremoteinput:
 	mov		r0,0h
 	str		r0,[r1]
 
 @@applyp2end:
 	mov		r0,42h
-	strb	r0,[r1]
+	strh	r0,[r1]
 
+
+	//iterate and loop back for the next port
+	pop		r2
+	add		r2,1h
+	cmp		r2,3h
+	bgt		@@exitDelayBuffer
+	b		@@loopforeachport
 
 
 @@exitDelayBuffer:
-	pop		r3,r6,r15
+	pop		r3,r6,r7,r15
 
 
 
