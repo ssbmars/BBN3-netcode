@@ -1,1 +1,4 @@
 *.gba
+*.bak
+*.SaveRAM
+*.State
