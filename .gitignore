@@ -4,3 +4,4 @@
 *.State
 BizHawk-2.5.2/test_bbn3.lua
 BizHawk-2.5.2/test bbn3 load.bat
+*.bak
