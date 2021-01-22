@@ -6,11 +6,13 @@ socket = require("socket.core")
 	debugmessages = 0	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
-	delaybattletimer = nil
+	delaybattletimer = 10
 	savcount = 30	--amount of savestate frames to keep
 	client.displaymessages(false)
+	emu.minimizeframeskip(true)
+	client.frameskip(9)
 	HideResim = 0
-	TargetFrame = 167.427063
+	TargetFrame = 167.427063 --166.67
 
 
 --set empty variables at script start
@@ -27,6 +29,7 @@ socket = require("socket.core")
 	tcp = nil
 	connected = nil
 	connectedclient = nil
+	frametable = {}
 	t = {}
 	c = {}
 	ctrl = {}
@@ -36,7 +39,7 @@ socket = require("socket.core")
 	err = nil
 	part = nil
 	opponent = nil
-	acked = false
+	acked = nil
 	CanWriteRemoteStats = false
 	CanWriteRemoteChips = false
 	thisispvp = 0
@@ -110,7 +113,11 @@ textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
 textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
 button_host = forms.button(menu,"Host",function()
 	PLAYERNUM = 1
-	HOST_IP = forms.gettext(textbox_ip)
+	if forms.gettext(textbox_ip) == "127.0.0.1" or forms.gettext(textbox_ip) == "localhost" then
+		HOST_IP = "0.0.0.0"
+	else
+		HOST_IP = forms.gettext(textbox_ip)
+	end
 	HOST_PORT = tonumber(forms.gettext(textbox_port))
 end,80,60,48,24)
 button_join = forms.button(menu,"Join",function()
@@ -154,23 +161,29 @@ co = coroutine.create(function()
 	while true do
 		data,err,part = opponent:receive()
 		if data ~= nil then -- Receive Data
-			if data == "ack" then
-				acked = true
+			if string.match(data, "get") == "get" then -- Received Ack
+				local frame = string.match(data, "(%d+)")
+				frametable[frame][1] = nil
+				frametable[frame][2] = nil
+				frametable[frame][3] = nil
+				frametable[frame] = nil
+				timedout = 0
+			elseif string.match(data, "ack") == "ack" then -- Getting Ack
+				acked = string.match(data, "(%d+)")
+				opponent:send("get,"..string.match(data, "(%d+)")) -- Acked Frame
 				timedout = 0
 			end
-			if data == "end" and acked then -- End of Data Stream
+			if data == "end" then -- End of Data Stream
 				data = nil
 				err = nil
 				part = nil
-				acked = false
-				
-				--	coroutine.yield()
-				
-			elseif data == "disconnect" and acked then
+				acked = nil
+				--coroutine.yield()	
+			elseif data == "disconnect" then -- Disconnecting
 				connected = nil
-				acked = false
+				acked = nil
 				break
-			elseif acked then
+			else
 				if data == "control" and #ctrl == 5 then -- Player Control Information
 					c[#c+1] = ctrl
 					ctrl = {}
@@ -185,7 +198,7 @@ co = coroutine.create(function()
 				end
 				local str = {}
 				local w = ""
-				for w in data:gmatch("(%d+)") do
+				for w in string.gmatch(data, "(%d+)") do
 					str[#str+1] = w
 				end
 				if #str > 0 then
@@ -198,17 +211,17 @@ co = coroutine.create(function()
 					end
 				end
 			end
-		elseif err == "timeout" then
+		elseif err == "timeout" then -- Timed Out
 			data = nil
 			err = nil
 			part = nil
-			acked = false
+			acked = nil
 			timedout = timedout + 1
 			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
 			--	emu.yield()
 				if timedout >= 60*5 then
 				--	connected = nil
-				--	acked = false
+				--	acked = nil
 				--	break
 				end
 			end
@@ -267,7 +280,7 @@ local function Init_Battle_Vis()
 	
 	--math.floor( / 167.427063)
 
-	print(localsent .." - ".. remotesent .." .. ".. receivedremote)
+	debug(localsent .." - ".. remotesent .." .. ".. receivedremote)
 
 	
 	if localsent < remotesent then
@@ -277,8 +290,7 @@ local function Init_Battle_Vis()
 		--if you sent it second
 		sleeptimeoffset = (receivedremote - remotesent) / 10
 	end
---	print(sleeptimeoffset)
-	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
+	sleeptime = 1500 - sleeptimeoffset --measured in milliseconds
 
 	vis_looptimes = 60
 
@@ -306,31 +318,33 @@ local function FrameStart()
 
 		--compensate for local frame stuttering by temporarily speeding up
 		--make sure this also can compensate for the time spent on rollbacks
-		if not(resimulating) then
-			sockettime = math.floor((socket.gettime()*10000) % 0x10000)
-			if prevsockettime then 
-				timepast = math.floor((sockettime - prevsockettime) % 0x10000)
-				timerift = timerift + timepast - TargetFrame
-				gui.drawText(1, 14, math.floor(timerift), "white")
-				if timerift > TargetFrame then 
-					if framethrottle == true then 
-						emu.limitframerate(false) 
-						framethrottle = false
-				--		print(timepast .."  ".. timerift .." : ".. sockettime)
-						gui.drawText(1, 23, "FAST", "white")
-					end
-				else
-					if framethrottle == false then
-						emu.limitframerate(true)
-						framethrottle = true
-					end
+		if resimulating then return end
+
+		sockettime = math.floor((socket.gettime()*10000) % 0x10000)
+		if prevsockettime then 
+			timepast = math.floor((sockettime - prevsockettime) % 0x10000)
+			timerift = timerift + timepast - TargetFrame
+			gui.drawText(1, 14, math.floor(timerift), "white")
+			if timerift > TargetFrame then 
+				--speed up if the timerift has surpassed 1 frame worth of ms
+				if framethrottle == true then 
+					emu.limitframerate(false) 
+					framethrottle = false
+					gui.drawText(1, 23, "FAST", "white")
+				end
+			elseif timerift < -20 then
+					client.sleep(math.abs(timerift)/5)
+			else
+				if framethrottle == false then
+					emu.limitframerate(true)
+					framethrottle = true
 				end
 			end
-			prevsockettime = sockettime
 		end
+		prevsockettime = sockettime
 	end
 end
-event.onframestart(FrameStart)
+event.onframestart(FrameStart,"FrameStart")
 
 -- Sync Custom Screen
 local function custsynchro()
@@ -390,14 +404,37 @@ local function sendhand()
 		local WriteType = memory.read_u8(0x02036830)
 		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x34 and WriteType == 0x2 then
 			debug("sent hand")
-			opponent:send("ack")
-			opponent:send("1,1,"..tostring(PLAYERNUM))
-			opponent:send("1,2,"..tostring(math.floor((socket.gettime()*10000) % 0x10000))) -- Socket Time
+			
+			local frametime = math.floor((socket.gettime()*10000) % 0x10000) -- Ack Time
+			if type(frametable[tostring(frametime)]) == "nil" then
+				frametable[tostring(frametime)] = {{},{},{}}
+			end
+			frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
+			frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 			local i = 0
 			for i=0,0x10 do
-				opponent:send("1,"..tostring(i+3)..","..tostring(memory.read_u32_le(PlayerDataLocal + i*0x4))) -- Player Stats
+				frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
+			end
+			opponent:send("ack,"..tostring(frametime)) -- Ack Time
+			
+			opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
+			opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
+			for i=0,0x10 do
+				opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 			end
 			opponent:send("stats")
+			
+			--[[
+			if acked and type(frametable[acked]) == "table" then
+				opponent:send("1,1,"..frametable[acked][2][1])
+				opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
+				for i=0,0x10 do
+					opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
+				end
+				opponent:send("stats")
+				acked = nil
+			end
+			]]
 			CanWriteRemoteChips = true
 			return
 		end
@@ -419,15 +456,38 @@ event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 local function SendStats()
 	if thisispvp == 1 then
 		if opponent == nil then debug("nopponent") return end
-		opponent:send("ack")
-		opponent:send("1,1,"..tostring(PLAYERNUM))
-		TimeStatsWereSent = math.floor((socket.gettime()*10000) % 0x10000) --we're saving this for later
-		opponent:send("1,2,"..tostring(TimeStatsWereSent)) -- Socket Time
+		
+		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		TimeStatsWereSent = frametime --we're saving this for later
+		if type(frametable[tostring(frametime)]) == "nil" then
+			frametable[tostring(frametime)] = {{},{},{}}
+		end
+		frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
+		frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 		local i = 0
 		for i=0,0x10 do
-			opponent:send("1,"..tostring(i+3)..","..tostring(memory.read_u32_le(PreloadStats + i*0x4))) -- Player Stats
+			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
+		end
+		opponent:send("ack,"..tostring(frametime)) -- Ack Time
+		
+		opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
+		opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
+		for i=0,0x10 do
+			opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 		end
 		opponent:send("stats")
+		
+		--[[
+		if acked ~= nil and type(frametable[acked]) == "table" then
+			opponent:send("1,1,"..frametable[acked][2][1])
+			opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
+			for i=0,0x10 do
+				opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
+			end
+			opponent:send("stats")
+			acked = nil
+		end
+		]]
 		debug("sending stats before initializing battle")
 		StallingBattle = true
 		received_stats = false
@@ -490,9 +550,9 @@ end
 event.onmemoryexecute(SetPlayerPorts,0x08008804,"SetPlayerPorts")
 
 local function ApplyRemoteInputs()
-	if thisispvp == 1 and not(resimulating) then
-
+	if thisispvp == 1 then
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+	if not(resimulating) then
 
 
 		--write the last received input to the latest entry, This will be undone when the corresponding input is received
@@ -594,6 +654,7 @@ local function ApplyRemoteInputs()
 
 		end
 	end
+	end
 end
 event.onmemoryexecute(ApplyRemoteInputs,0x08008800,"ApplyRemoteInputs")
 
@@ -615,30 +676,29 @@ tcp = socket.tcp()
 local ip, dnsdata = socket.dns.toip(HOST_IP)
 HOST_IP = ip
 -- Host
-tcp:settimeout(1 / (16777216 / 280896),'b')
+tcp:settimeout(0.5 / (16777216 / 280896),'b')
 if PLAYERNUM == 1 then
 	tcp:bind(HOST_IP, HOST_PORT)
 	local server, err = nil, nil
 	while connectedclient == nil do
-		if thisispvp == 1 then
-			while server == nil do
-				server, err = tcp:listen(1)
-			end
-			if server ~= nil then
-				connectedclient = tcp:accept()
-			end
+		while server == nil do
+			server, err = tcp:listen(1)
+		end
+		if server ~= nil then
+			connectedclient = tcp:accept()
 		end
 		emu.frameadvance()
 	end
 	debug("You are the Server.")
 -- Client
 else
-	local err = nil
+	local err
 	while connectedclient == nil do
-		if thisispvp == 1 then
-			connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
+		err = nil	
+		connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
+		if connectedclient and not err then
+			emu.frameadvance()
 		end
-		emu.frameadvance()
 	end
 	debug("You are the Client.")
 	--give host priority to the server side
@@ -732,9 +792,69 @@ while true do
 
 	-- Weird Netcode Stuff
 	if opponent ~= nil and connected and not(resimulating) then
+		
+		-- Sort and clean Frame Table's earliest frames
+		while #frametable >= savcount do
+			for k,v in pairs(frametable) do
+				frametable[k][1] = nil
+				frametable[k][2] = nil
+				frametable[k][3] = nil
+				frametable[k] = nil
+				debug("Removing #"..k.." from frametable.")
+				break
+			end
+		end
+		
+		-- Write new data to Frame Table
+		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		if type(frametable[tostring(frametime)]) == "nil" then
+			frametable[tostring(frametime)] = {{},{},{}}
+		end
+		frametable[tostring(frametime)][1][1] = tostring(PLAYERNUM)
+		frametable[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
+		frametable[tostring(frametime)][1][3] = tostring(memory.read_u8(SceneIndicator))
+		frametable[tostring(frametime)][1][4] = tostring(waitingforpvp)
+		frametable[tostring(frametime)][1][5] = tostring(frametime)
+		
+		frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
+		frametable[tostring(frametime)][3][2] = tostring(memory.read_u8(0x2036830))
+		frametable[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
+		if type(l) == "table" and type(l[4]) == "number" and waitingforround == 1 and l[5] == 1 then
+			l[4] = l[4]-1
+			frametable[tostring(frametime)][3][4] = tostring(l[4])
+		elseif type(l) == "table" and type(l[4]) == "number" and (waitingforround == 1 or l[5] == 1) then
+			frametable[tostring(frametime)][3][4] = tostring(l[4])
+		else
+			frametable[tostring(frametime)][3][4] = tostring(0x3C)
+		end
+		frametable[tostring(frametime)][3][5] = tostring(waitingforround)
+		frametable[tostring(frametime)][3][6] = tostring(memory.read_u16_le(PlayerHPLocal))
+		frametable[tostring(frametime)][3][7] = tostring(memory.read_u32_le(0x02009730))
+		frametable[tostring(frametime)][3][8] = tostring(memory.read_u32_le(0x02009800))
+		frametable[tostring(frametime)][3][9] = tostring(memory.read_u16_le(0x0203b380))
 	
-		-- Send Data to Opponent
-		opponent:send("ack")
+		-- Send Ack to Opponent
+		opponent:send("ack,"..tostring(frametime)) -- Ack Time
+		-- Send Frame Table to Opponent
+		opponent:send("0,1,"..frametable[tostring(frametime)][1][1])
+		opponent:send("0,2,"..frametable[tostring(frametime)][1][2])
+		opponent:send("0,3,"..frametable[tostring(frametime)][1][3])
+		opponent:send("0,4,"..frametable[tostring(frametime)][1][4])
+		opponent:send("0,5,"..frametable[tostring(frametime)][1][5])
+		opponent:send("control")
+		opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
+		opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+		opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
+		opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
+		opponent:send("2,5,"..frametable[tostring(frametime)][3][5])
+		opponent:send("2,6,"..frametable[tostring(frametime)][3][6])
+		opponent:send("2,7,"..frametable[tostring(frametime)][3][7])
+		opponent:send("2,8,"..frametable[tostring(frametime)][3][8])
+		opponent:send("2,9,"..frametable[tostring(frametime)][3][9])
+		opponent:send("loadround")
+		opponent:send("end")
+		
+		--[[
 		opponent:send("0,1,"..tostring(PLAYERNUM)) -- Player Number
 		opponent:send("0,2,"..tostring(memory.read_u32_le(InputStackLocal))) -- Player Control Inputs
 		opponent:send("0,3,"..tostring(memory.read_u8(SceneIndicator))) -- Battle Check
@@ -753,13 +873,13 @@ while true do
 			opponent:send("2,4,"..tostring(0x3C))
 		end
 		opponent:send("2,5,"..tostring(waitingforround))
-
 		opponent:send("2,6,"..tostring(memory.read_u16_le(PlayerHPLocal))) -- Player HP
 		opponent:send("2,7,"..tostring(memory.read_u32_le(0x02009730))) -- RNG #1
 		opponent:send("2,8,"..tostring(memory.read_u32_le(0x02009800))) -- RNG #2
 		opponent:send("2,9,"..tostring(memory.read_u16_le(0x0203b380))) -- Battle Timestamp Value
 		opponent:send("loadround")
 		opponent:send("end")
+		--]]
 		
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
@@ -855,6 +975,20 @@ while true do
 		end
 	end
 
+--	if thisispvp == 1 and timerift < -60 and not(resimulating) and framethrottle == true then
+	--	local endingtime = math.floor((socket.gettime()*10000) % 0x10000)
+	--	local timedif = math.floor((endingtime - sockettime) % 0x10000)
+	--	local adjtimerift = math.abs(timerift) - timedif
+
+	--	if adjtimerift > 0 then
+	--		local slpamount = math.floor(adjtimerift / 10)
+	--		gui.drawText(1, 34, slpamount, "white")
+	--		client.sleep(slpamount)
+	--		local eeee = math.abs(timerift) - adjtimerift
+	--		gui.drawText(50, 13, eeee, "white")
+	--	end
+--	end
+
 	emu.frameadvance()
 end
 
@@ -864,6 +998,7 @@ if opponent ~= nil then
 	opponent:close()
 	opponent = nil
 end
+event.unregisterbyname("FrameStart")
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")
 event.unregisterbyname("SendStats")
