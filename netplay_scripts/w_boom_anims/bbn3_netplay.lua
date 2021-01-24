@@ -1,5 +1,5 @@
 socket = require "socket.core"
-boom = require "boom"
+boom = require "boom/boom"
 
 client.displaymessages(false)
 
