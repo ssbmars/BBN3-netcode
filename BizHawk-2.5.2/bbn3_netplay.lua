@@ -311,86 +311,84 @@ end
 
 
 local function FrameStart()
-	if thisispvp == 1 then
-		if connected then 
-			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
-		end
+	if thisispvp == 0 then return end 
 
-		--compensate for local frame stuttering by temporarily speeding up
-		--make sure this also can compensate for the time spent on rollbacks
-		if resimulating then return end
+	if connected then 
+		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+	end
 
-		sockettime = math.floor((socket.gettime()*10000) % 0x10000)
-		if prevsockettime then 
-			timepast = math.floor((sockettime - prevsockettime) % 0x10000)
-			timerift = timerift + timepast - TargetFrame
-			gui.drawText(1, 14, math.floor(timerift), "white")
-			if timerift > TargetFrame then 
-				--speed up if the timerift has surpassed 1 frame worth of ms
-				if framethrottle == true then 
-					emu.limitframerate(false) 
-					framethrottle = false
-					gui.drawText(1, 23, "FAST", "white")
-				end
-			elseif timerift < -20 then
-					client.sleep(math.abs(timerift)/5)
-			else
-				if framethrottle == false then
-					emu.limitframerate(true)
-					framethrottle = true
-				end
+	--compensate for local frame stuttering by temporarily speeding up
+	--make sure this also can compensate for the time spent on rollbacks
+	if resimulating then return end
+
+	sockettime = math.floor((socket.gettime()*10000) % 0x10000)
+	if prevsockettime then 
+		timepast = math.floor((sockettime - prevsockettime) % 0x10000)
+		timerift = timerift + timepast - TargetFrame
+		gui.drawText(1, 14, math.floor(timerift), "white")
+		if timerift > TargetFrame then 
+			--speed up if the timerift has surpassed 1 frame worth of ms
+			if framethrottle == true then 
+				emu.limitframerate(false) 
+				framethrottle = false
+				gui.drawText(1, 23, "FAST", "white")
+			end
+		elseif timerift < -20 then
+				client.sleep(math.abs(timerift)/5)
+		else
+			if framethrottle == false then
+				emu.limitframerate(true)
+				framethrottle = true
 			end
 		end
-		prevsockettime = sockettime
 	end
+	prevsockettime = sockettime
 end
 event.onframestart(FrameStart,"FrameStart")
 
 -- Sync Custom Screen
 local function custsynchro()
-	if thisispvp == 1 then
-		reg3 = emu.getregister("R3")
-		
+	if thisispvp == 0 then return end
 
+	reg3 = emu.getregister("R3")
+
+	-- Sync Player HP and Input Buffer
+	if type(l) == "table" and #l > 0 then
+		memory.write_u8(InputBufferRemote, l[3])
+		if PLAYERNUM == 1 and #l >= 6 then
+		--	memory.write_u16_le(PlayerHPRemote, l[6])
+		elseif PLAYERNUM == 2 and #l >= 6 then
+		--	memory.write_u16_le(PlayerHPLocal, l[6])
+		--	memory.write_u32_le(0x02009730, l[7])
+		--	memory.write_u32_le(0x02009800, l[8])
+		end
+	end
 		
-		-- Sync Player HP and Input Buffer
+	-- Rewrite Client's Timestamp
+	if PLAYERNUM > 1 then
+		if type(c) == "table" and #c > 0 then
+			if type(c[1]) == "table" and #c[1] > 0 then
+				if c[1][3] == 0x4 or memory.read_u8(SceneIndicator) == 0x4 then
+					memory.write_u16_le(0x0203b380, l[9])
+					debug("wrote the thing")
+				end
+			else
+				debug("nada")
+			end
+		end
+	end
+		
+	if reg3 == 0x2 then
+		waitingforround = 1
 		if type(l) == "table" and #l > 0 then
-			memory.write_u8(InputBufferRemote, l[3])
-			if PLAYERNUM == 1 and #l >= 6 then
-			--	memory.write_u16_le(PlayerHPRemote, l[6])
-			elseif PLAYERNUM == 2 and #l >= 6 then
-			--	memory.write_u16_le(PlayerHPLocal, l[6])
-			--	memory.write_u32_le(0x02009730, l[7])
-			--	memory.write_u32_le(0x02009800, l[8])
-			end
-		end
-		
-		-- Rewrite Client's Timestamp
-		if PLAYERNUM > 1 then
-			if type(c) == "table" and #c > 0 then
-				if type(c[1]) == "table" and #c[1] > 0 then
-					if c[1][3] == 0x4 or memory.read_u8(SceneIndicator) == 0x4 then
-						memory.write_u16_le(0x0203b380, l[9])
-						debug("wrote the thing")
-					end
-				else
-					debug("nada")
-				end
-			end
-		end
-		
-		if reg3 == 0x2 then
-			waitingforround = 1
-			if type(l) == "table" and #l > 0 then
-				if l[4] <= 0 and waitingforround and l[5] then
-					waitingforround = 0
-					return
-				else
-					emu.setregister("R3",0)
-				end
+			if l[4] <= 0 and waitingforround and l[5] then
+				waitingforround = 0
+				return
 			else
 				emu.setregister("R3",0)
 			end
+		else
+			emu.setregister("R3",0)
 		end
 	end
 end
@@ -398,67 +396,14 @@ event.onmemoryexecute(custsynchro,0x08008B96,"CustSync")
 
 -- Sync Player Hands
 local function sendhand()
-	if thisispvp == 1 then
-		if opponent == nil then return end
-		--when this runs, it means you can safely send your chip hand and write over the remote player's hand
-		local WriteType = memory.read_u8(0x02036830)
-		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x34 and WriteType == 0x2 then
-			debug("sent hand")
+	if thisispvp == 0 or opponent == nil then return end
+
+	--when this runs, it means you can safely send your chip hand and write over the remote player's hand
+	local WriteType = memory.read_u8(0x02036830)
+	if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x34 and WriteType == 0x2 then
+		debug("sent hand")
 			
-			local frametime = math.floor((socket.gettime()*10000) % 0x10000) -- Ack Time
-			if type(frametable[tostring(frametime)]) == "nil" then
-				frametable[tostring(frametime)] = {{},{},{}}
-			end
-			frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
-			frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
-			local i = 0
-			for i=0,0x10 do
-				frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
-			end
-			opponent:send("ack,"..tostring(frametime)) -- Ack Time
-			
-			opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
-			opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
-			for i=0,0x10 do
-				opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
-			end
-			opponent:send("stats")
-			
-			--[[
-			if acked and type(frametable[acked]) == "table" then
-				opponent:send("1,1,"..frametable[acked][2][1])
-				opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
-				for i=0,0x10 do
-					opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
-				end
-				opponent:send("stats")
-				acked = nil
-			end
-			]]
-			CanWriteRemoteChips = true
-			return
-		end
-
-		--this is the signal that it's safe to write the received player stats to ram
-		--it only triggers once, at the start of the match before players have loaded in
-		if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x4C and WriteType == 0x1 then
-
-			CanWriteRemoteStats = true
-
-
-		end
-	end
-end
-event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
-
-
--- Sync Data on Match Load
-local function SendStats()
-	if thisispvp == 1 then
-		if opponent == nil then debug("nopponent") return end
-		
-		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
-		TimeStatsWereSent = frametime --we're saving this for later
+		local frametime = math.floor((socket.gettime()*10000) % 0x10000) -- Ack Time
 		if type(frametable[tostring(frametime)]) == "nil" then
 			frametable[tostring(frametime)] = {{},{},{}}
 		end
@@ -469,16 +414,16 @@ local function SendStats()
 			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
 		end
 		opponent:send("ack,"..tostring(frametime)) -- Ack Time
-		
+			
 		opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
 		opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
 		for i=0,0x10 do
 			opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 		end
 		opponent:send("stats")
-		
+			
 		--[[
-		if acked ~= nil and type(frametable[acked]) == "table" then
+		if acked and type(frametable[acked]) == "table" then
 			opponent:send("1,1,"..frametable[acked][2][1])
 			opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
 			for i=0,0x10 do
@@ -488,13 +433,64 @@ local function SendStats()
 			acked = nil
 		end
 		]]
-		debug("sending stats before initializing battle")
-		StallingBattle = true
-		received_stats = false
-		memory.write_u8(0x0200F320, 0x1) -- 0x1
-	else
-		memory.write_u8(0x0200F320, 0x0)
+		CanWriteRemoteChips = true
+		return
 	end
+
+	--this is the signal that it's safe to write the received player stats to ram
+	--it only triggers once, at the start of the match before players have loaded in
+	if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x4C and WriteType == 0x1 then
+
+		CanWriteRemoteStats = true
+
+	end
+end
+event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
+
+
+-- Sync Data on Match Load
+local function SendStats()
+	if thisispvp == 0 then 
+		memory.write_u8(0x0200F320, 0x0)
+		return
+	end
+	if opponent == nil then debug("nopponent") return end
+
+	local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+	TimeStatsWereSent = frametime --we're saving this for later
+	if type(frametable[tostring(frametime)]) == "nil" then
+		frametable[tostring(frametime)] = {{},{},{}}
+	end
+	frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
+	frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
+	local i = 0
+	for i=0,0x10 do
+		frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
+	end
+	opponent:send("ack,"..tostring(frametime)) -- Ack Time
+		
+	opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
+	opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
+	for i=0,0x10 do
+		opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
+	end
+	opponent:send("stats")
+		
+	--[[
+	if acked ~= nil and type(frametable[acked]) == "table" then
+		opponent:send("1,1,"..frametable[acked][2][1])
+		opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
+		for i=0,0x10 do
+			opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
+		end
+		opponent:send("stats")
+		acked = nil
+	end
+	]]
+	debug("sending stats before initializing battle")
+	StallingBattle = true
+	received_stats = false
+	memory.write_u8(0x0200F320, 0x1) -- 0x1
 end
 event.onmemoryexecute(SendStats,0x0800761A,"SendStats")
 
@@ -537,6 +533,8 @@ end
 event.onmemoryexecute(delaybattlestart,0x080048CC,"DelayBattle")
 
 local function SetPlayerPorts()
+	if thisispvp == 0 then return end
+
 	--write port number (0-3)
 	memory.write_u8(InputData, PORTNUM)
 	--write input lag value
@@ -550,110 +548,103 @@ end
 event.onmemoryexecute(SetPlayerPorts,0x08008804,"SetPlayerPorts")
 
 local function ApplyRemoteInputs()
-	if thisispvp == 1 then
-		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
-	if not(resimulating) then
+	if thisispvp == 0 then return end
+	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+	if resimulating then return end
+
+	--write the last received input to the latest entry, This will be undone when the corresponding input is received
+	memory.write_u16_le(InputStackRemote+0x2, lastinput)
+	--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
+	memory.write_u8(InputStackRemote+1,0x1)
+
+	--iterate the latest input's timestamp by 1 frame (it's necessary to do this first for this new routine)
+	previoustimestamp = memory.read_u8(InputStackRemote)
+	newtimestamp = math.floor((previoustimestamp + 0x1)%256)
+	localtimestamp = memory.read_u8(0x0203b380)
+
+	--avoid iterating the remote timestamp if it would make it greater than the local timestamp
+	local tsdif = newtimestamp - localtimestamp
+	if tsdif > 0 then else
+		memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
+	end
 
 
-		--write the last received input to the latest entry, This will be undone when the corresponding input is received
-		memory.write_u8(InputStackRemote+0x2, lastinput)
-		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
-		memory.write_u8(InputStackRemote+1,0x1)
+	if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
 
-		--iterate the latest input's timestamp by 1 frame (it's necessary to do this first for this new routine)
-		previoustimestamp = memory.read_u8(InputStackRemote)
-		newtimestamp = math.floor((previoustimestamp + 0x1)%256)
-		localtimestamp = memory.read_u8(0x0203b380)
+		while #c > 0 do --continue writing inputs until the backlog of received inputs is empty
 
-		--avoid iterating the remote timestamp if it would make it greater than the local timestamp
-		local tsdif = newtimestamp - localtimestamp
-		if tsdif > 0 then
-		else
-			memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
-		end
-
-
-		if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
-
-
-			while #c > 0 do --continue writing inputs until the backlog of received inputs is empty
-
-				local pointer = 0
-				local match = false
-				local stacksize = memory.read_u8(InputStackSize)
-	
-				while match == false do
-					if (c[1][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
-						match = true
-					else
-						pointer = pointer + 1
-						if pointer > stacksize then pointer = 0 break end
-					end
-				end
-
-				if match == true then
-					--rollback logic
-					--returns true if it's about to write to an input slot that was already executed
-					local iStatus = bit.check(memory.read_u8(InputStackRemote + 0x1 + pointer*0x10),1)
-					if iStatus == true then
-					--check whether the guessed input was correct
-						--record the guessed input before overwriting
-						local iGuess = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
-						--write the received input (halfword)
-						memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
-						--load the received input (halfword) into a variable for comparison
-						iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
-						--compare both inputs, set the rollback flag if they don't match
-						if iGuess ~= iCorrected then
-							rbAmount =  math.floor(localtimestamp - (c[1][2] % 256) %256)
-							--this will use the pointer to decide how many frames back to jump
-							--it can rewrite the flag many times in a frame, but it will keep the largest value for that frame
-							if memory.read_u8(rollbackflag) < rbAmount then
-								memory.write_u8(rollbackflag, rbAmount)
-							end
-						end
-						table.remove(c,1)
-					else
-					--runs when the input was received on time
-						memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
-						table.remove(c,1)
-					end
-				else
-					local i = 0
-					for i=0,(stacksize - 1) do
-						table.insert(CycleInputStack, 1, memory.read_u32_le(InputStackRemote + i*0x10))
-					end
-					local i = 0
-					for i=0,(stacksize - 1) do
-						memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
-						table.remove(CycleInputStack,#CycleInputStack)
-					end
-					memory.write_u32_le(InputStackRemote, c[1][2])
-					table.remove(c,1)		
-				end
-			end
-			
 			local pointer = 0
+			local match = false
 			local stacksize = memory.read_u8(InputStackSize)
-
-			while true do
-				if memory.read_u8(InputStackRemote + 0x1 + pointer*0x10) == 0 then
-					lastinput = memory.read_u8(InputStackRemote + 0x2 + pointer*0x10)
-					break
+	
+			while match == false do
+				if (c[1][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
+					match = true
 				else
 					pointer = pointer + 1
-					if pointer > stacksize then 
-						lastinput = 0
-						break 
-					end
+					if pointer > stacksize then pointer = 0 break end
 				end
 			end
 
-		else
-		--if no input was received this frame
-
+			if match == true then
+				--rollback logic
+				--returns true if it's about to write to an input slot that was already executed
+				local iStatus = bit.check(memory.read_u8(InputStackRemote + 0x1 + pointer*0x10),1)
+				if iStatus == true then
+				--check whether the guessed input was correct
+					--record the guessed input before overwriting
+					local iGuess = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+					--write the received input (halfword)
+					memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+					--load the received input (halfword) into a variable for comparison
+					iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+					--compare both inputs, set the rollback flag if they don't match
+					if iGuess ~= iCorrected then
+						rbAmount =  math.floor(localtimestamp - (c[1][2] % 256) %256)
+						--this will use the pointer to decide how many frames back to jump
+						--it can rewrite the flag many times in a frame, but it will keep the largest value for that frame
+						if memory.read_u8(rollbackflag) < rbAmount then
+							memory.write_u8(rollbackflag, rbAmount)
+						end
+					end
+					table.remove(c,1)
+				else
+				--runs when the input was received on time
+					memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+					table.remove(c,1)
+				end
+			else
+				local i = 0
+				for i=0,(stacksize - 1) do
+					table.insert(CycleInputStack, 1, memory.read_u32_le(InputStackRemote + i*0x10))
+				end
+				local i = 0
+				for i=0,(stacksize - 1) do
+					memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
+					table.remove(CycleInputStack,#CycleInputStack)
+				end
+				memory.write_u32_le(InputStackRemote, c[1][2])
+				table.remove(c,1)		
+			end
 		end
-	end
+			
+		local pointer = 0
+		local stacksize = memory.read_u8(InputStackSize)
+
+		while true do
+			if memory.read_u8(InputStackRemote + 0x1 + pointer*0x10) == 0 then
+				lastinput = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+				break
+			else
+				pointer = pointer + 1
+				if pointer > stacksize then 
+					lastinput = 0
+					break 
+				end
+			end
+		end
+	else
+		--if no input was received this frame
 	end
 end
 event.onmemoryexecute(ApplyRemoteInputs,0x08008800,"ApplyRemoteInputs")
