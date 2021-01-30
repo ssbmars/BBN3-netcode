@@ -48,7 +48,11 @@ local function preconnect()
 	HOST_IP = ip
 
 	-- Host
-	tcp:settimeout(0.5 / (16777216 / 280896),'b')
+	if PLAYERNUM == 1 then
+		tcp:settimeout(0.5 / (16777216 / 280896),'b')
+	else 
+		tcp:settimeout(5,'b')
+	end
 
 	PORTNUM = PLAYERNUM - 1
 	InputBufferLocal = InputData + PLAYERNUM
@@ -217,13 +221,13 @@ local function connectionform()
 	textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
 	textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
 
-	function makeCallback(playernum)
+	local function makeCallback(playernum, is_host)
 		return function()
 			PLAYERNUM = playernum
 			local input = forms.gettext(textbox_ip)
 
 			if isIP(input) then
-				if input == "127.0.0.1" or input == "localhost" then
+				if is_host and (input == "127.0.0.1" or input == "localhost") then
 					HOST_IP = "0.0.0.0"
 				else
 					HOST_IP = input
@@ -237,8 +241,8 @@ local function connectionform()
 		end
 	end
 
-	button_host = forms.button(menu,"Host", makeCallback(1), 80,60,48,24)
-	button_join = forms.button(menu,"Join", makeCallback(2), 160,60,48,24)
+	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
+	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
 end
 
 connectionform()
@@ -669,7 +673,7 @@ local function delaybattlestart()
 				if type(l) == "table" and #l > 0 then
 					if PLAYERNUM == 2 then
 					--	memory.write_u32_le(0x02009730, l[7])
-						memory.write_u32_le(0x02009800, l[8])
+					--	memory.write_u32_le(0x02009800, l[8])
 					end
 				end
 			end
@@ -848,14 +852,18 @@ while true do
 			defineopponent()
 		-- Client
 		else
+			local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
 			local err
 			while connectedclient == nil do
 				err = nil	
+				client.SetSoundOn(false) -- the stutter is horrible
 				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
 				if connectedclient and not err then
 					emu.frameadvance()
 				end
+				debug("fail")
 			end
+			client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
 			debug("You are the Client.")
 			--give host priority to the server side
 		    memory.writebyte(0x0801A11C,0x1)
