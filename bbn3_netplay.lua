@@ -1,13 +1,58 @@
 socket = require("socket.core")
 
+local function isIP(ip) 
+	local function GetIPType(ip)
+		local IPType = {
+			[0] = "Error",
+			[1] = "IPv4",
+			[2] = "IPv6",
+			[3] = "string",
+		}
+	
+		-- must pass in a string value
+		if ip == nil or type(ip) ~= "string" then
+			return IPType[0]
+		end
+	
+		-- check for format 1.11.111.111 for ipv4
+		local chunks = {ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")}
+		if (#chunks == 4) then
+			for _,v in pairs(chunks) do
+				if (tonumber(v) < 0 or tonumber(v) > 255) then
+					return IPType[0]
+				end
+			end
+			return IPType[1]
+		else
+			return IPType[0]
+		end
+	
+		-- check for ipv6 format, should be 8 'chunks' of numbers/letters
+		local _, chunks = ip:gsub("[%a%d]+%:?", "")
+		if chunks == 8 then
+			return IPType[2]
+		end
+	
+		-- if we get here, assume we've been given a random string
+		return IPType[3]
+	end
+
+	local type = GetIPType(ip)
+	return ip == "localhost" or type == "IPv4" or type == "IPv6"
+end
 
 local function preconnect()
 	-- Check if either Host or Client
 	tcp = socket.tcp()
 	local ip, dnsdata = socket.dns.toip(HOST_IP)
 	HOST_IP = ip
+
 	-- Host
-	tcp:settimeout(0.5 / (16777216 / 280896),'b')
+	if PLAYERNUM == 1 then
+		tcp:settimeout(0.5 / (16777216 / 280896),'b')
+	else 
+		tcp:settimeout(5,'b')
+	end
 
 	PORTNUM = PLAYERNUM - 1
 	InputBufferLocal = InputData + PLAYERNUM
@@ -22,107 +67,101 @@ local function preconnect()
 	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
 	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
 	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
-
 end
+
 local function defineopponent()
 	-- Set who your Opponent is
 	opponent = socket.udp()
 	opponent:settimeout(0)--(1 / (16777216 / 280896))
 end
 
-
 local function cleanstate()
 	--define variables that we might adjust sometimes
 	
-		BufferVal = 1		--input lag value in frames
-		debugmessages = 1	--toggle whether to print debug messages
-		rollbackmode = 1	--toggle this between 1 and nil
-		saferollback = 6
-		delaybattletimer = 20
-		savcount = 30	--amount of savestate frames to keep
-		client.displaymessages(false)
-		emu.minimizeframeskip(true)
-		client.frameskip(9)
-		HideResim = 0
-		TargetFrame = 167.427063 --166.67
-	
+	BufferVal = 1		--input lag value in frames
+	debugmessages = 1	--toggle whether to print debug messages
+	rollbackmode = 1	--toggle this between 1 and nil
+	saferollback = 6
+	delaybattletimer = 20
+	savcount = 30	--amount of savestate frames to keep
+	client.displaymessages(false)
+	emu.minimizeframeskip(true)
+	client.frameskip(9)
+	HideResim = 0
+	TargetFrame = 167.427063 --166.67
 	
 	--set empty variables at script start
-		
-		rollbackframes = 0
-		resimulating = nil
-		emu.limitframerate(true)
-		framethrottle = true
-		
-		PLAYERNUM = 0
-		PORTNUM = nil
-		HOST_IP = "127.0.0.1"
-		HOST_PORT = 5738
-		tcp = nil
-		connected = nil
-		connectedclient = nil
-		frametable = {}
-		t = {}
-		c = {}
-		ctrl = {}
-		l = {}
-		s = {}
-		data = nil
-		err = nil
-		part = nil
-		opponent = nil
-		acked = nil
-		CanWriteRemoteStats = false
-		CanWriteRemoteChips = false
-		thisispvp = 0
-		waitingforpvp = 0
-		waitingforround = 0
-		timedout = 0
-		lastinput = 0
-		sav = {}  --savestate ID table
-		FullInputStack = {}  --input stack for rollback frames
-		CycleInputStack = {} --input stack when the input handler cycles it down to make more room
+	rollbackframes = 0
+	resimulating = nil
+	emu.limitframerate(true)
+	framethrottle = true
 	
+	PLAYERNUM = 0
+	PORTNUM = nil
+	HOST_IP = "127.0.0.1"
+	HOST_PORT = 5738
+	tcp = nil
+	connected = nil
+	connectedclient = nil
+	frametable = {}
+	t = {}
+	c = {}
+	ctrl = {}
+	l = {}
+	s = {}
+	data = nil
+	err = nil
+	part = nil
+	opponent = nil
+	acked = nil
+	CanWriteRemoteStats = false
+	CanWriteRemoteChips = false
+	thisispvp = 0
+	waitingforpvp = 0
+	waitingforround = 0
+	timedout = 0
+	lastinput = 0
+	sav = {}  --savestate ID table
+	FullInputStack = {}  --input stack for rollback frames
+	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
 	
 	--define RAM offset variables
-		
-		InputData = 0x0203B400
-		InputStackSize = InputData + 0x5
-		rollbackflag = InputData + 0x6
-		SceneIndicator = 0x020097F8
-		StartBattleFlipped = 0x0203B362
+	InputData = 0x0203B400
+	InputStackSize = InputData + 0x5
+	rollbackflag = InputData + 0x6
+	SceneIndicator = 0x020097F8
+	StartBattleFlipped = 0x0203B362
+
+	PreloadStats = 0x0200F330
+	PLS_Style = PreloadStats + 0x4
+	PLS_HP = PreloadStats + 0x8
 	
-		PreloadStats = 0x0200F330
-			PLS_Style = PreloadStats + 0x4
-			PLS_HP = PreloadStats + 0x8
-		
-		PlayerData = 0x02036840
-			PD_s = 0x110	--PlayerData size
-		
-		BattleData_A = 0x02037274
-			BDA_s = 0xD4	--BattleData_A size
-			BDA_HP = 0x20 + BattleData_A --pointer for active HP value
-			BDA_HandSize = 0x16 + BattleData_A 
-		
-			--the rest of these pointers aren't meant for anything currently
-			BDA_Act_State = 0x1 + BattleData_A 
-			-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
-			BDA_Act_Main = 0x2 + BattleData_A 
-			-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
-			BDA_Act_Sub = 0x5D + BattleData_A 
-			-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
-		
-		BattleData_B = 0x020384D0
-			BDB_s = 0x88	--BattleData_B size
+	PlayerData = 0x02036840
+	PD_s = 0x110 --PlayerData size
 	
+	BattleData_A = 0x02037274
+	BDA_s = 0xD4 --BattleData_A size
+	BDA_HP = 0x20 + BattleData_A --pointer for active HP value
+	BDA_HandSize = 0x16 + BattleData_A 
+
+	--the rest of these pointers aren't meant for anything currently
+	BDA_Act_State = 0x1 + BattleData_A 
+
+	-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
+	BDA_Act_Main = 0x2 + BattleData_A 
+	
+	-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
+	BDA_Act_Sub = 0x5D + BattleData_A 
+
+	-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
+	BattleData_B = 0x020384D0
+	BDB_s = 0x88 --BattleData_B size
 	
 	--define variables for gui.draw
-		
-		x_center = 120 
-		y_center = 80
-		--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
-	
-	
+	x_center = 120 
+	y_center = 80
+
+	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
 	menu = nil
 end
 
@@ -134,16 +173,16 @@ local function gui_src()
 	smallpet = "gui_Sprites\\PET_small_blue.png"
 	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
 	signal_anim = "gui_Sprites\\search_signal_blue.png"
-		dur_max_signal = 5
-		cnt_max_signal = 6
-		dur_signal = 0
-		cnt_signal = 0
-		xreg_signal = 24
-		yreg_signal = 16
-
-
+	dur_max_signal = 5
+	cnt_max_signal = 6
+	dur_signal = 0
+	cnt_signal = 0
+	xreg_signal = 24
+	yreg_signal = 16
 end
+
 gui_src()
+
 local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
 	--dur = duration of the frame, max defines how long to hold each frame for
 	--cnt = the frame that's currently being shown, max defines how many total frames exist
@@ -165,8 +204,6 @@ local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, c
 end
 --gui_animate(120, 80, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
 
-
-
 local delaymenu = 20
 while delaymenu > 0 do
 	delaymenu = delaymenu - 1
@@ -174,34 +211,38 @@ while delaymenu > 0 do
 end
 
 local function connectionform()
-	menu = forms.newform(300,140,"BBN3 Netplay",function()
-		return nil end)
+	menu = forms.newform(300,140,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 142)
 	local form_ypos = (client.ypos() + 80*windowsize + 10)
-	forms.setlocation(menu, form_xpos , form_ypos)
+	forms.setlocation(menu, form_xpos, form_ypos)
 	label_ip = forms.label(menu,"IP:",8,0,32,24)
 	port_ip = forms.label(menu,"Port:",8,30,32,24)
 	textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
 	textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
-	button_host = forms.button(menu,"Host",function()
-		PLAYERNUM = 1
-		if forms.gettext(textbox_ip) == "127.0.0.1" or forms.gettext(textbox_ip) == "localhost" then
-			HOST_IP = "0.0.0.0"
-		else
-			HOST_IP = forms.gettext(textbox_ip)
+
+	local function makeCallback(playernum, is_host)
+		return function()
+			PLAYERNUM = playernum
+			local input = forms.gettext(textbox_ip)
+
+			if isIP(input) then
+				if is_host and (input == "127.0.0.1" or input == "localhost") then
+					HOST_IP = "0.0.0.0"
+				else
+					HOST_IP = input
+				end
+				HOST_PORT = tonumber(forms.gettext(textbox_port))
+				forms.destroyall()
+				preconnect()
+			else 
+				forms.settext(textbox_ip, "Bad IP")
+			end
 		end
-		HOST_PORT = tonumber(forms.gettext(textbox_port))
-		forms.destroyall()
-		preconnect()
-	end,80,60,48,24)
-	button_join = forms.button(menu,"Join",function()
-		PLAYERNUM = 2
-		HOST_IP = forms.gettext(textbox_ip)
-		HOST_PORT = tonumber(forms.gettext(textbox_port))
-		forms.destroyall()
-		preconnect()
-	end,160,60,48,24)
+	end
+
+	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
+	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
 end
 
 connectionform()
@@ -632,7 +673,7 @@ local function delaybattlestart()
 				if type(l) == "table" and #l > 0 then
 					if PLAYERNUM == 2 then
 					--	memory.write_u32_le(0x02009730, l[7])
-						memory.write_u32_le(0x02009800, l[8])
+					--	memory.write_u32_le(0x02009800, l[8])
 					end
 				end
 			end
@@ -790,13 +831,8 @@ local function closebattle()
 end
 event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
-
-
-
 -- Main Loop
 while true do
-	
-
 	if connected ~= true and PLAYERNUM > 0 and thisispvp == 1 then
 		--preconnect()
 	
@@ -816,14 +852,18 @@ while true do
 			defineopponent()
 		-- Client
 		else
+			local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
 			local err
 			while connectedclient == nil do
 				err = nil	
+				client.SetSoundOn(false) -- the stutter is horrible
 				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
 				if connectedclient and not err then
 					emu.frameadvance()
 				end
+				debug("fail")
 			end
+			client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
 			debug("You are the Client.")
 			--give host priority to the server side
 		    memory.writebyte(0x0801A11C,0x1)
@@ -855,8 +895,6 @@ while true do
 	elseif connected == true then
 		gui.drawText(220, 1, "p"..PLAYERNUM, "white")
 	end
-
-
 
 	if StallingBattle == true then
 
