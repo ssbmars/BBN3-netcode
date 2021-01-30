@@ -38,7 +38,7 @@ local function cleanstate()
 		debugmessages = 1	--toggle whether to print debug messages
 		rollbackmode = 1	--toggle this between 1 and nil
 		saferollback = 6
-		delaybattletimer = 10
+		delaybattletimer = 20
 		savcount = 30	--amount of savestate frames to keep
 		client.displaymessages(false)
 		emu.minimizeframeskip(true)
@@ -128,6 +128,45 @@ end
 
 cleanstate()
 
+local function gui_src()
+	VSimg = "gui_Sprites\\vs_text.png"
+	bigpet = "gui_Sprites\\PET_big.png"
+	smallpet = "gui_Sprites\\PET_small_blue.png"
+	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
+	signal_anim = "gui_Sprites\\search_signal_blue.png"
+		dur_max_signal = 5
+		cnt_max_signal = 6
+		dur_signal = 0
+		cnt_signal = 0
+		xreg_signal = 24
+		yreg_signal = 16
+
+
+end
+gui_src()
+local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
+	--dur = duration of the frame, max defines how long to hold each frame for
+	--cnt = the frame that's currently being shown, max defines how many total frames exist
+	--region = the size in pixels of each frame
+
+	gui.drawImageRegion(img, xreg * cnt, 0, xreg, yreg, xpos, ypos)
+
+	if dur == dur_max then
+		dur = 0
+		if cnt == cnt_max then
+			cnt = 0
+		else
+			cnt = cnt + 1
+		end
+	else
+		dur = dur + 1
+	end
+	return dur, cnt
+end
+--gui_animate(120, 80, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
+
+
+
 local delaymenu = 20
 while delaymenu > 0 do
 	delaymenu = delaymenu - 1
@@ -199,7 +238,7 @@ local function receivepackets()
 	err = nil
 	part = nil
 	while true do
-		gui.drawText(1, 80, "co", "white")
+		gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
 		if data ~= nil then -- Receive Data
 			if string.match(data, "get") == "get" then -- Received Ack
@@ -230,17 +269,16 @@ local function receivepackets()
 				if data == "control" and #ctrl == 5 then -- Player Control Information
 					c[#c+1] = ctrl
 					ctrl = {}
-					gui.drawText(80, 120, "ctrl", "white")
+			--		gui.drawText(80, 120, "ctrl", "white")
 				end
 				if data == "stats" and #t == 19 then -- Player Stats
 					s = t
 					t = {}
-					gui.drawText(80, 80, "stats", "white")
 				end
 				if data == "loadround" and #t == 9 then -- Player Load Round Timer
 					l = t
 					t = {}
-					gui.drawText(80, 100, "load", "white")
+			--		gui.drawText(80, 100, "load", "white")
 				end
 				local str = {}
 				local w = ""
@@ -342,10 +380,20 @@ local function Init_Battle_Vis()
 	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
 
 	vis_looptimes = 90
+	vis_vs_zoom = {}
+	local function def_vs_frame_zooms(...)
+		for pos, val in pairs({...}) do
+			vis_vs_zoom[pos] = val
+		end
+	end
+	def_vs_frame_zooms(0, 0, 0, 0, 0, 7, 6, 5, 4, 3, 2, 1.3, 0.9, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.9, 1, 0.9)
+
 end
 
 
 local function Battle_Vis()
+
+	if not(scene_anim) then scene_anim = 1 end
 
 	--left megaman
 	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
@@ -353,7 +401,19 @@ local function Battle_Vis()
 	--right megaman
 	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
 
-	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
+--	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
+	
+	local multiplier = 1
+	if vis_vs_zoom[scene_anim] then 
+		multiplier = vis_vs_zoom[scene_anim]
+	end
+
+	vs_xsize = 48 * multiplier
+	vs_ysize = 24 * multiplier
+
+	gui.drawImage(VSimg, 120 -vs_xsize/2, 80 -vs_ysize/2, vs_xsize, vs_ysize)
+	scene_anim = scene_anim + 1
+	return scene_anim
 end
 
 
@@ -534,7 +594,7 @@ local function SendStats()
 		acked = nil
 	end
 	]]
-	debug("sending stats before initializing battle")
+	debug("sending stats")
 	StallingBattle = true
 	received_stats = false
 	memory.write_u8(0x0200F320, 0x1) -- 0x1
@@ -545,6 +605,9 @@ local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		if thisispvp == 0 then
 			waitingforpvp = 1
+			delaybattletimer = 30
+			ypos_bigpet = 45
+			yoffset_bigpet = 120
 		end
 		thisispvp = 1
 		prevsockettime = nil
@@ -552,12 +615,20 @@ local function delaybattlestart()
 
 		if #c == 0 then
 			memory.writebyte(SceneIndicator,0x4)
-			gui.drawText(20, y_center - 20, "search routine", "white", nil, nil, nil, nil,"middle")
-			gui.drawText(20, y_center + 0, "find: [ Netbattler ]", "white", nil, nil, nil, nil,"middle")
+		--	gui.drawText(20, y_center - 20, "search routine", "white", nil, nil, nil, nil,"middle")
+		--	gui.drawText(20, y_center + 0, "find: [ Netbattler ]", "white", nil, nil, nil, nil,"middle")
+			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+			gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
+			dur_signal, cnt_signal = gui_animate(124 - 12, ypos_bigpet +25 +yoffset_bigpet, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
+			if yoffset_bigpet > 0 then
+				yoffset_bigpet = yoffset_bigpet - 10
+				if yoffset_bigpet > 40 then
+					yoffset_bigpet = yoffset_bigpet - 10
+				end
+			end
 		else
 			if waitingforpvp == 1 then
 				waitingforpvp = 0
-				delaybattletimer = 10
 				if type(l) == "table" and #l > 0 then
 					if PLAYERNUM == 2 then
 					--	memory.write_u32_le(0x02009730, l[7])
@@ -574,6 +645,8 @@ local function delaybattlestart()
 			if #c > 1 then
 				table.remove(c,1)
 			end
+			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+			gui.drawImage(smallpet_bright, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
 			gui.drawText(1, 120, c[1][4], "white")
 		end
 	else
@@ -747,9 +820,9 @@ while true do
 			while connectedclient == nil do
 				err = nil	
 				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-			--	if connectedclient and not err then
+				if connectedclient and not err then
 					emu.frameadvance()
-			--	end
+				end
 			end
 			debug("You are the Client.")
 			--give host priority to the server side
@@ -780,7 +853,7 @@ while true do
 			debug("Connected!")
 		end
 	elseif connected == true then
-		gui.drawText(1, 140, "p "..PLAYERNUM, "white")
+		gui.drawText(220, 1, "p"..PLAYERNUM, "white")
 	end
 
 
@@ -794,7 +867,7 @@ while true do
 		if received_stats == true then
 			if vis_looptimes > 0 then
 				vis_looptimes = vis_looptimes - 1
-				Battle_Vis()
+				scene_anim = Battle_Vis()
 			else
 				StallingBattle = false
 				memory.write_u8(0x0200F320, 0x0)
@@ -888,7 +961,6 @@ while true do
 		opponent:send("0,2,"..frametable[tostring(frametime)][1][2])
 		opponent:send("0,3,"..frametable[tostring(frametime)][1][3])
 		opponent:send("0,4,"..frametable[tostring(frametime)][1][4])
-		gui.drawText(20, 120, "send "..frametable[tostring(frametime)][1][4], "white")
 		opponent:send("0,5,"..frametable[tostring(frametime)][1][5])
 		opponent:send("control")
 		opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
@@ -943,23 +1015,9 @@ while true do
 		local buttons = joypad.get()
 		if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
 			closebattle()
---			opponent:send("disconnect")
---			opponent:close()
---			cleanstate()
---			connectionform()
---			opponent = nil
---			connected = nil
 		end
 	end
-	
---	if connected == nil then
---		if opponent ~= nil then
---			opponent:send("disconnect")
---			opponent:close()
---			opponent = nil
---		end
---		break
---	end
+
 		
 	--rollback rountine
 	if thisispvp == 1 then
@@ -991,7 +1049,6 @@ while true do
 
 				emu.limitframerate(false)
 				framethrottle = false
-			--	prevsockettime = math.floor((socket.gettime()*10000) % 0x10000) --make sure it can compensate for the time spent resimulating
 				if HideResim then
 					client.invisibleemulation(true)
 				end
@@ -1028,28 +1085,9 @@ while true do
 		end
 	end
 
---[[	if thisispvp == 1 and timerift < -60 and not(resimulating) and framethrottle == true then
-		local endingtime = math.floor((socket.gettime()*10000) % 0x10000)
-		local timedif = math.floor((endingtime - sockettime) % 0x10000)
-		local adjtimerift = math.abs(timerift) - timedif
-
-		if adjtimerift > 0 then
-			local slpamount = math.floor(adjtimerift / 10)
-			gui.drawText(1, 34, slpamount, "white")
-			client.sleep(slpamount)
-			local eeee = math.abs(timerift) - adjtimerift
-			gui.drawText(50, 13, eeee, "white")
-		end
-	end  --]]
 	emu.frameadvance()
 end
 
---thisispvp = 0
---if opponent ~= nil then
---	opponent:send("disconnect")
---	opponent:close()
---	opponent = nil
---end
 event.unregisterbyname("FrameStart")
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")
