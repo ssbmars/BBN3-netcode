@@ -1,22 +1,109 @@
 socket = require("socket.core")
 
---define variables that we might adjust sometimes
+local function isIP(ip) 
+	local function GetIPType(ip)
+		local IPType = {
+			[0] = "Error",
+			[1] = "IPv4",
+			[2] = "IPv6",
+			[3] = "string",
+		}
+	
+		-- must pass in a string value
+		if ip == nil or type(ip) ~= "string" then
+			return IPType[0]
+		end
+	
+		-- check for format 1.11.111.111 for ipv4
+		local chunks = {ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")}
+		if (#chunks == 4) then
+			for _,v in pairs(chunks) do
+				if (tonumber(v) < 0 or tonumber(v) > 255) then
+					return IPType[0]
+				end
+			end
+			return IPType[1]
+		else
+			return IPType[0]
+		end
+	
+		-- check for ipv6 format, should be 8 'chunks' of numbers/letters
+		local _, chunks = ip:gsub("[%a%d]+%:?", "")
+		if chunks == 8 then
+			return IPType[2]
+		end
+	
+		-- if we get here, assume we've been given a random string
+		return IPType[3]
+	end
+
+	local type = GetIPType(ip)
+	return ip == "localhost" or type == "IPv4" or type == "IPv6"
+end
+
+local function preconnect()
+	-- Check if either Host or Client
+	tcp = socket.tcp()
+	local ip, dnsdata = socket.dns.toip(HOST_IP)
+	HOST_IP = ip
+
+--	tcp:settimeout(1/30,'b')
+	tcp:settimeout(1 / (16777216 / 280896),'b')
+
+
+	PORTNUM = PLAYERNUM - 1
+	InputBufferLocal = InputData + PLAYERNUM
+	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
+	PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
+	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+	
+	--this math only works for 1v1s
+	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
+	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
+	PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
+	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
+	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
+	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
+end
+
+local function defineopponent()
+	-- Set who your Opponent is
+	opponent = socket.udp()
+	opponent:settimeout(0)--(1 / (16777216 / 280896))
+end
+
+
+local function gui_src()
+	VSimg = "gui_Sprites\\vs_text.png"
+	bigpet = "gui_Sprites\\PET_big.png"
+	smallpet = "gui_Sprites\\PET_small_blue.png"
+	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
+	signal_anim = "gui_Sprites\\search_signal_blue.png"
+	dur_max_signal = 4
+	cnt_max_signal = 6
+	dur_signal = 0
+	cnt_signal = 0
+	xreg_signal = 24
+	yreg_signal = 16
+end
+
+
+local function cleanstate()
+	--define variables that we might adjust sometimes
 	
 	BufferVal = 1		--input lag value in frames
-	debugmessages = 0	--toggle whether to print debug messages
+	debugmessages = 1	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
-	delaybattletimer = 10
+	delaybattletimer = 20
 	savcount = 30	--amount of savestate frames to keep
 	client.displaymessages(false)
 	emu.minimizeframeskip(true)
 	client.frameskip(9)
 	HideResim = 0
 	TargetFrame = 167.427063 --166.67
-
-
---set empty variables at script start
 	
+	--set empty variables at script start
 	rollbackframes = 0
 	resimulating = nil
 	emu.limitframerate(true)
@@ -50,10 +137,8 @@ socket = require("socket.core")
 	sav = {}  --savestate ID table
 	FullInputStack = {}  --input stack for rollback frames
 	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
-
-
---define RAM offset variables
 	
+	--define RAM offset variables
 	InputData = 0x0203B400
 	InputStackSize = InputData + 0x5
 	rollbackflag = InputData + 0x6
@@ -61,97 +146,132 @@ socket = require("socket.core")
 	StartBattleFlipped = 0x0203B362
 
 	PreloadStats = 0x0200F330
-		PLS_Style = PreloadStats + 0x4
-		PLS_HP = PreloadStats + 0x8
+	PLS_Style = PreloadStats + 0x4
+	PLS_HP = PreloadStats + 0x8
 	
 	PlayerData = 0x02036840
-		PD_s = 0x110	--PlayerData size
+	PD_s = 0x110 --PlayerData size
 	
 	BattleData_A = 0x02037274
-		BDA_s = 0xD4	--BattleData_A size
-		BDA_HP = 0x20 + BattleData_A --pointer for active HP value
-		BDA_HandSize = 0x16 + BattleData_A 
+	BDA_s = 0xD4 --BattleData_A size
+	BDA_HP = 0x20 + BattleData_A --pointer for active HP value
+	BDA_HandSize = 0x16 + BattleData_A 
+
+	--the rest of these pointers aren't meant for anything currently
+	BDA_Act_State = 0x1 + BattleData_A 
+
+	-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
+	BDA_Act_Main = 0x2 + BattleData_A 
 	
-		--the rest of these pointers aren't meant for anything currently
-		BDA_Act_State = 0x1 + BattleData_A 
-		-- 7 = idle, 4 = movement, 3 & 1 = buster endlag, 0 = chip/attack
-		BDA_Act_Main = 0x2 + BattleData_A 
-		-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
-		BDA_Act_Sub = 0x5D + BattleData_A 
-		-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
-	
+	-- holds the value of the type of attack being used (ie almost all swords have the val of 0x8)
+	BDA_Act_Sub = 0x5D + BattleData_A 
+
+	-- defines the specific sub attack (if main = 0x8, then sub = 0x3 would be firesword, or 0x9 for Muramasa)
 	BattleData_B = 0x020384D0
-		BDB_s = 0x88	--BattleData_B size
-
-
---define variables for gui.draw
+	BDB_s = 0x88 --BattleData_B size
 	
+	--define variables for gui.draw
 	x_center = 120 
 	y_center = 80
+	scene_anim = nil
+	gui_src()
+
 	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
+	menu = nil
+end
+
+cleanstate()
 
 
+local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
+	--dur = duration of the frame, max defines how long to hold each frame for
+	--cnt = the frame that's currently being shown, max defines how many total frames exist
+	--region = the size in pixels of each frame
 
+	gui.drawImageRegion(img, xreg * cnt, 0, xreg, yreg, xpos, ypos)
 
-menu = nil
+	if dur == dur_max then
+		dur = 0
+		if cnt == cnt_max then
+			cnt = 0
+		else
+			cnt = cnt + 1
+		end
+	else
+		dur = dur + 1
+	end
+	return dur, cnt
+end
+--gui_animate(120, 80, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
+
 local delaymenu = 20
 while delaymenu > 0 do
 	delaymenu = delaymenu - 1
 	emu.frameadvance()
 end
 
+local function connectionform()
+	menu = forms.newform(300,140,"BBN3 Netplay",function() return nil end)
+	local windowsize = client.getwindowsize()
+	local form_xpos = (client.xpos() + 120*windowsize - 142)
+	local form_ypos = (client.ypos() + 80*windowsize + 10)
+	forms.setlocation(menu, form_xpos, form_ypos)
+	label_ip = forms.label(menu,"IP:",8,0,32,24)
+	port_ip = forms.label(menu,"Port:",8,30,32,24)
+	textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
+	textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
 
-menu = forms.newform(300,140,"BBN3 Netplay",function()
-	return nil end)
-local windowsize = client.getwindowsize()
-local form_xpos = (client.xpos() + 120*windowsize - 142)
-local form_ypos = (client.ypos() + 80*windowsize + 10)
-forms.setlocation(menu, form_xpos , form_ypos)
-label_ip = forms.label(menu,"IP:",8,0,32,24)
-port_ip = forms.label(menu,"Port:",8,30,32,24)
-textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
-textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
-button_host = forms.button(menu,"Host",function()
-	PLAYERNUM = 1
-	if forms.gettext(textbox_ip) == "127.0.0.1" or forms.gettext(textbox_ip) == "localhost" then
-		HOST_IP = "0.0.0.0"
-	else
-		HOST_IP = forms.gettext(textbox_ip)
+	local function makeCallback(playernum, is_host)
+		return function()
+			PLAYERNUM = playernum
+			local input = forms.gettext(textbox_ip)
+
+			if isIP(input) then
+				if is_host and (input == "127.0.0.1" or input == "localhost") then
+					HOST_IP = "0.0.0.0"
+				else
+					HOST_IP = input
+				end
+				HOST_PORT = tonumber(forms.gettext(textbox_port))
+				forms.destroyall()
+				preconnect()
+			else 
+				forms.settext(textbox_ip, "Bad IP")
+			end
+		end
 	end
-	HOST_PORT = tonumber(forms.gettext(textbox_port))
-end,80,60,48,24)
-button_join = forms.button(menu,"Join",function()
-	PLAYERNUM = 2
-	HOST_IP = forms.gettext(textbox_ip)
-	HOST_PORT = tonumber(forms.gettext(textbox_port))
-end,160,60,48,24)
+
+	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
+	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
+end
+
+connectionform()
 
 while PLAYERNUM < 1 do
 	emu.frameadvance()
 end
 
-forms.destroyall()
+--forms.destroyall()
 
 
 --define controller ports and offsets for individual players
 	
-	PORTNUM = PLAYERNUM - 1
-	InputBufferLocal = InputData + PLAYERNUM
-	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
-	PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
-	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
-	
-	--this math only works for 1v1s
-	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
-	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
-	PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
-	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
-	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
-	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
+--	PORTNUM = PLAYERNUM - 1
+--	InputBufferLocal = InputData + PLAYERNUM
+--	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
+--	PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
+--	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+--	
+--	--this math only works for 1v1s
+--	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
+--	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
+--	PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
+--	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
+--	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
+--	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 
 
-
-co = coroutine.create(function()
+local function receivepackets()
 	-- Loop for Received data
 	--t = {}
 	ctrl = {}
@@ -159,6 +279,7 @@ co = coroutine.create(function()
 	err = nil
 	part = nil
 	while true do
+		gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
 		if data ~= nil then -- Receive Data
 			if string.match(data, "get") == "get" then -- Received Ack
@@ -180,13 +301,16 @@ co = coroutine.create(function()
 				acked = nil
 				--coroutine.yield()	
 			elseif data == "disconnect" then -- Disconnecting
+				gui.drawText(80, 120, "close", "white")
 				connected = nil
 				acked = nil
-				break
+				closebattle()
+				--break
 			else
 				if data == "control" and #ctrl == 5 then -- Player Control Information
 					c[#c+1] = ctrl
 					ctrl = {}
+			--		gui.drawText(80, 120, "ctrl", "white")
 				end
 				if data == "stats" and #t == 19 then -- Player Stats
 					s = t
@@ -195,6 +319,7 @@ co = coroutine.create(function()
 				if data == "loadround" and #t == 9 then -- Player Load Round Timer
 					l = t
 					t = {}
+			--		gui.drawText(80, 100, "load", "white")
 				end
 				local str = {}
 				local w = ""
@@ -219,6 +344,7 @@ co = coroutine.create(function()
 			timedout = timedout + 1
 			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
 			--	emu.yield()
+			gui.drawText(80, 120, "timeout", "white")
 				if timedout >= 60*5 then
 				--	connected = nil
 				--	acked = nil
@@ -227,10 +353,13 @@ co = coroutine.create(function()
 			end
 			coroutine.yield()
 		else
+			gui.drawText(80, 120, "nothin", "white")
 			coroutine.yield()
 		end
 	end
-end)
+end
+
+co = coroutine.create(function() receivepackets() end)
 
 
 
@@ -242,7 +371,6 @@ end
 
 
 local function Init_Battle_Vis()
-
 
 	local style = {}
 	local function def_styles(...)
@@ -280,7 +408,7 @@ local function Init_Battle_Vis()
 	
 	--math.floor( / 167.427063)
 
-	debug(localsent .." - ".. remotesent .." .. ".. receivedremote)
+	--debug(localsent .." - ".. remotesent .." .. ".. receivedremote)
 
 	
 	if localsent < remotesent then
@@ -290,15 +418,22 @@ local function Init_Battle_Vis()
 		--if you sent it second
 		sleeptimeoffset = (receivedremote - remotesent) / 10
 	end
-	sleeptime = 1500 - sleeptimeoffset --measured in milliseconds
+	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
 
-	vis_looptimes = 60
-
-
+	vis_looptimes = 90
+	vis_vs_zoom = {}
+	local function def_vs_frame_zooms(...)
+		for pos, val in pairs({...}) do
+			vis_vs_zoom[pos] = val
+		end
+	end
+	def_vs_frame_zooms(0, 0, 0, 0, 0, 7, 6, 5, 4, 3, 2, 1.3, 0.9, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.9, 1, 0.9)
 end
 
 
 local function Battle_Vis()
+
+	if not(scene_anim) then scene_anim = 1 end
 
 	--left megaman
 	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
@@ -306,7 +441,19 @@ local function Battle_Vis()
 	--right megaman
 	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
 
-	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
+--	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
+	
+	local multiplier = 1
+	if vis_vs_zoom[scene_anim] then 
+		multiplier = vis_vs_zoom[scene_anim]
+	end
+
+	vs_xsize = 48 * multiplier
+	vs_ysize = 24 * multiplier
+
+	gui.drawImage(VSimg, 120 -vs_xsize/2, 80 -vs_ysize/2, vs_xsize, vs_ysize)
+	scene_anim = scene_anim + 1
+	return scene_anim
 end
 
 
@@ -487,7 +634,7 @@ local function SendStats()
 		acked = nil
 	end
 	]]
-	debug("sending stats before initializing battle")
+	debug("sending stats")
 	StallingBattle = true
 	received_stats = false
 	memory.write_u8(0x0200F320, 0x1) -- 0x1
@@ -496,23 +643,36 @@ event.onmemoryexecute(SendStats,0x0800761A,"SendStats")
 
 local function delaybattlestart()
 	if memory.readbyte(0x0200188F) == 0x0B then
+		if thisispvp == 0 then
+			waitingforpvp = 1
+			delaybattletimer = 30
+			ypos_bigpet = 45
+			yoffset_bigpet = 120
+		end
 		thisispvp = 1
 		prevsockettime = nil
 		timerift = 0
 
 		if #c == 0 then
 			memory.writebyte(SceneIndicator,0x4)
-			waitingforpvp = 1
-			gui.drawText(20, y_center - 20, "search routine", "white", nil, nil, nil, nil,"middle")
-			gui.drawText(20, y_center + 0, "find: [ Netbattler ]", "white", nil, nil, nil, nil,"middle")
+		--	gui.drawText(20, y_center - 20, "search routine", "white", nil, nil, nil, nil,"middle")
+		--	gui.drawText(20, y_center + 0, "find: [ Netbattler ]", "white", nil, nil, nil, nil,"middle")
+			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+			gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
+			dur_signal, cnt_signal = gui_animate(124 - 12, ypos_bigpet +25 +yoffset_bigpet, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
+			if yoffset_bigpet > 0 then
+				yoffset_bigpet = yoffset_bigpet - 10
+				if yoffset_bigpet > 40 then
+					yoffset_bigpet = yoffset_bigpet - 10
+				end
+			end
 		else
 			if waitingforpvp == 1 then
 				waitingforpvp = 0
-				delaybattletimer = 10
 				if type(l) == "table" and #l > 0 then
 					if PLAYERNUM == 2 then
 					--	memory.write_u32_le(0x02009730, l[7])
-						memory.write_u32_le(0x02009800, l[8])
+					--	memory.write_u32_le(0x02009800, l[8])
 					end
 				end
 			end
@@ -525,6 +685,9 @@ local function delaybattlestart()
 			if #c > 1 then
 				table.remove(c,1)
 			end
+			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+			gui.drawImage(smallpet_bright, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
+			gui.drawText(1, 120, c[1][4], "white")
 		end
 	else
 		thisispvp = 0
@@ -650,83 +813,132 @@ end
 event.onmemoryexecute(ApplyRemoteInputs,0x08008800,"ApplyRemoteInputs")
 
 local function closebattle()
-	if opponent ~= nil then
-		opponent:close()
-		opponent = nil
-		connected = nil
-	end
 	while #sav > 0 do
 		memorysavestate.removestate(sav[#sav])
 		table.remove(sav,#sav)
 	end
+	while #frametable > 0 do
+		table.remove(frametable,#frametable)
+	end
+
+	opponent:send("disconnect")
+	opponent:close()
+	
+	cleanstate()
+	connectionform()
+
 end
 event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
--- Check if either Host or Client
-tcp = socket.tcp()
-local ip, dnsdata = socket.dns.toip(HOST_IP)
-HOST_IP = ip
--- Host
-tcp:settimeout(0.5 / (16777216 / 280896),'b')
-if PLAYERNUM == 1 then
-	tcp:bind(HOST_IP, HOST_PORT)
-	local server, err = nil, nil
-	while connectedclient == nil do
-		while server == nil do
-			server, err = tcp:listen(1)
+
+
+local function Init_p2p_Connection()
+
+	if PLAYERNUM == 1 then
+
+		if not(Init_p2p_Connection_looped) then
+			Init_p2p_Connection_looped = true
+			tcp:bind(HOST_IP, HOST_PORT)
 		end
-		if server ~= nil then
-			connectedclient = tcp:accept()
+
+		if not(connection_attempt_delay) then connection_attempt_delay = 1 end
+		if connection_attempt_delay < 35 then
+			connection_attempt_delay = connection_attempt_delay + 1
+		else
+			if connectedclient == nil then
+
+				while host_server == nil do
+					host_server, host_err = tcp:listen(1)
+					emu.frameadvance()
+					print("bingus")
+				end
+				if host_server ~= nil then
+					connectedclient = tcp:accept()
+				end
+
+			end
 		end
-		emu.frameadvance()
+
+	-- Client
+	else
+	--	local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
+		local err
+		if connectedclient == nil then
+--			client.SetSoundOn(false) -- the stutter is horrible
+			
+			if not(connection_attempt_delay) then connection_attempt_delay = 1 end
+			if connection_attempt_delay < 35 then
+				connection_attempt_delay = connection_attempt_delay + 1
+			else
+
+				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
+				while err == nil and connectedclient == nil do
+					emu.frameadvance()
+				end
+				if err == "already connected" then
+					connectedclient = 1
+				end
+			end
+		end
 	end
-	debug("You are the Server.")
--- Client
-else
-	local err
-	while connectedclient == nil do
-		err = nil	
-		connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-		if connectedclient and not err then
-			emu.frameadvance()
+	
+	
+	if connectedclient then
+
+		debug(connectedclient)
+		connection_attempt_delay = nil
+		Init_p2p_Connection_looped = nil
+		host_server, host_err = nil
+
+		defineopponent()
+
+		if PLAYERNUM == 1 then
+			debug("Connected as Server.")
+			ip, port = connectedclient:getpeername()
+			connectedclient:close()
+			tcp:close()
+			opponent:setsockname(HOST_IP, HOST_PORT)
+			opponent:setpeername(ip, port)
+		else
+	--		client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
+			debug("Connected as Client.")
+			--give host priority to the server side
+		    memory.writebyte(0x0801A11C,0x1)
+		    memory.writebyte(0x0801A11D,0x5)
+		    memory.writebyte(0x0801A120,0x0)
+		    memory.writebyte(0x0801A121,0x2)
+			ip, port = tcp:getsockname()
+			tcp:close()
+			opponent:setsockname(ip, port)
+			opponent:setpeername(HOST_IP, HOST_PORT)
+			debug(HOST_IP..", "..HOST_PORT)
 		end
+		-- Finalize Connection
+		connected = true
 	end
-	debug("You are the Client.")
-	--give host priority to the server side
-    memory.writebyte(0x0801A11C,0x1)
-    memory.writebyte(0x0801A11D,0x5)
-    memory.writebyte(0x0801A120,0x0)
-    memory.writebyte(0x0801A121,0x2)
+--coroutine.yield()
 end
 
--- Set who your Opponent is
-opponent = socket.udp()
-opponent:settimeout(0)--(1 / (16777216 / 280896))
-if PLAYERNUM == 1 then
-	ip, port = connectedclient:getpeername()
-	connectedclient:close()
-	tcp:close()
-	opponent:setsockname(HOST_IP, HOST_PORT)
-	opponent:setpeername(ip, port)
-else
-	ip, port = tcp:getsockname()
-	tcp:close()
-	opponent:setsockname(ip, port)
-	opponent:setpeername(HOST_IP, HOST_PORT)
-end
-
--- Finalize Connection
-if connectedclient then
-	connected = true
-	debug("Connected!")
-end
-
+coco = coroutine.create(function() Init_p2p_Connection() end)
 
 
 
 -- Main Loop
 while true do
 	
+
+	if connected ~= true and thisispvp == 1 and PLAYERNUM > 0 then
+
+		if coroutine.status(coco) == "dead" then
+			coco = coroutine.create(function() Init_p2p_Connection() end)
+		end
+		if coroutine.status(coco) == "suspended" then
+			coroutine.resume(coco)
+		end
+
+	elseif connected == true then
+		gui.drawText(220, 1, "p"..PLAYERNUM, "white")
+	end
 
 	if StallingBattle == true then
 
@@ -737,7 +949,7 @@ while true do
 		if received_stats == true then
 			if vis_looptimes > 0 then
 				vis_looptimes = vis_looptimes - 1
-				Battle_Vis()
+				scene_anim = Battle_Vis()
 			else
 				StallingBattle = false
 				memory.write_u8(0x0200F320, 0x0)
@@ -875,32 +1087,22 @@ while true do
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
 			coroutine.resume(co)
+		elseif coroutine.status(co) == "dead" then
+			debug("coroutine dead, recreating")
+			co = coroutine.create(function() receivepackets() end)
 		end
 	
 		-- Reset to Disconnect
 		-- Will also disconnect the other player
 		local buttons = joypad.get()
 		if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
-			opponent:send("disconnect")
-			opponent:close()
-			opponent = nil
-			connected = nil
+			closebattle()
 		end
 	end
-	
-	if connected == nil then
-		if opponent ~= nil then
-			opponent:send("disconnect")
-			opponent:close()
-			opponent = nil
-		end
-		break
-	end
+
 		
 	--rollback rountine
-	if thisispvp == 1 then 
-		
-
+	if thisispvp == 1 then
 			--check if we need to roll back
 		local rollbackframes = memory.read_u8(rollbackflag)
 		if rollbackframes > #sav then
@@ -929,7 +1131,6 @@ while true do
 
 				emu.limitframerate(false)
 				framethrottle = false
-			--	prevsockettime = math.floor((socket.gettime()*10000) % 0x10000) --make sure it can compensate for the time spent resimulating
 				if HideResim then
 					client.invisibleemulation(true)
 				end
@@ -966,29 +1167,9 @@ while true do
 		end
 	end
 
---	if thisispvp == 1 and timerift < -60 and not(resimulating) and framethrottle == true then
-	--	local endingtime = math.floor((socket.gettime()*10000) % 0x10000)
-	--	local timedif = math.floor((endingtime - sockettime) % 0x10000)
-	--	local adjtimerift = math.abs(timerift) - timedif
-
-	--	if adjtimerift > 0 then
-	--		local slpamount = math.floor(adjtimerift / 10)
-	--		gui.drawText(1, 34, slpamount, "white")
-	--		client.sleep(slpamount)
-	--		local eeee = math.abs(timerift) - adjtimerift
-	--		gui.drawText(50, 13, eeee, "white")
-	--	end
---	end
-
 	emu.frameadvance()
 end
 
-thisispvp = 0
-if opponent ~= nil then
-	opponent:send("disconnect")
-	opponent:close()
-	opponent = nil
-end
 event.unregisterbyname("FrameStart")
 event.unregisterbyname("CustSync")
 event.unregisterbyname("DelayBattle")

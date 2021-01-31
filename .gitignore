@@ -5,3 +5,8 @@
 BizHawk-2.5.2/test_bbn3.lua
 BizHawk-2.5.2/test bbn3 load.bat
 *.ini
+BBN3-netplay/.ignore/bbn3.bps
+BBN3-netplay/.ignore/bbn3_no-tp.bps
+BizHawk-2.5.2/config.ini
+BizHawk-2.5.2/config2.ini
+BizHawk-2.5.2/GBA/SaveRAM/*
