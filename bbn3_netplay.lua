@@ -47,12 +47,9 @@ local function preconnect()
 	local ip, dnsdata = socket.dns.toip(HOST_IP)
 	HOST_IP = ip
 
-	-- Host
-	if PLAYERNUM == 1 then
-		tcp:settimeout(0.5 / (16777216 / 280896),'b')
-	else 
-		tcp:settimeout(5,'b')
-	end
+--	tcp:settimeout(1/30,'b')
+	tcp:settimeout(1 / (16777216 / 280896),'b')
+
 
 	PORTNUM = PLAYERNUM - 1
 	InputBufferLocal = InputData + PLAYERNUM
@@ -74,6 +71,22 @@ local function defineopponent()
 	opponent = socket.udp()
 	opponent:settimeout(0)--(1 / (16777216 / 280896))
 end
+
+
+local function gui_src()
+	VSimg = "gui_Sprites\\vs_text.png"
+	bigpet = "gui_Sprites\\PET_big.png"
+	smallpet = "gui_Sprites\\PET_small_blue.png"
+	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
+	signal_anim = "gui_Sprites\\search_signal_blue.png"
+	dur_max_signal = 4
+	cnt_max_signal = 6
+	dur_signal = 0
+	cnt_signal = 0
+	xreg_signal = 24
+	yreg_signal = 16
+end
+
 
 local function cleanstate()
 	--define variables that we might adjust sometimes
@@ -160,6 +173,8 @@ local function cleanstate()
 	--define variables for gui.draw
 	x_center = 120 
 	y_center = 80
+	scene_anim = nil
+	gui_src()
 
 	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
 	menu = nil
@@ -167,21 +182,6 @@ end
 
 cleanstate()
 
-local function gui_src()
-	VSimg = "gui_Sprites\\vs_text.png"
-	bigpet = "gui_Sprites\\PET_big.png"
-	smallpet = "gui_Sprites\\PET_small_blue.png"
-	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
-	signal_anim = "gui_Sprites\\search_signal_blue.png"
-	dur_max_signal = 5
-	cnt_max_signal = 6
-	dur_signal = 0
-	cnt_signal = 0
-	xreg_signal = 24
-	yreg_signal = 16
-end
-
-gui_src()
 
 local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
 	--dur = duration of the frame, max defines how long to hold each frame for
@@ -428,7 +428,6 @@ local function Init_Battle_Vis()
 		end
 	end
 	def_vs_frame_zooms(0, 0, 0, 0, 0, 7, 6, 5, 4, 3, 2, 1.3, 0.9, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.9, 1, 0.9)
-
 end
 
 
@@ -831,67 +830,112 @@ local function closebattle()
 end
 event.onmemoryexecute(closebattle,0x08006958,"CloseBattle")
 
--- Main Loop
-while true do
-	if connected ~= true and PLAYERNUM > 0 and thisispvp == 1 then
-		--preconnect()
-	
-		if PLAYERNUM == 1 then
+
+
+local function Init_p2p_Connection()
+
+	if PLAYERNUM == 1 then
+
+		if not(Init_p2p_Connection_looped) then
+			Init_p2p_Connection_looped = true
 			tcp:bind(HOST_IP, HOST_PORT)
-			local server, err = nil, nil
-			while connectedclient == nil do
-				while server == nil do
-					server, err = tcp:listen(1)
+		end
+
+		if not(connection_attempt_delay) then connection_attempt_delay = 1 end
+		if connection_attempt_delay < 35 then
+			connection_attempt_delay = connection_attempt_delay + 1
+		else
+			if connectedclient == nil then
+
+				while host_server == nil do
+					host_server, host_err = tcp:listen(1)
+					emu.frameadvance()
+					print("bingus")
 				end
-				if server ~= nil then
+				if host_server ~= nil then
 					connectedclient = tcp:accept()
 				end
-				emu.frameadvance()
+
 			end
-			debug("You are the Server.")
-			defineopponent()
-		-- Client
-		else
-			local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
-			local err
-			while connectedclient == nil do
-				err = nil	
-				client.SetSoundOn(false) -- the stutter is horrible
+		end
+
+	-- Client
+	else
+	--	local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
+		local err
+		if connectedclient == nil then
+--			client.SetSoundOn(false) -- the stutter is horrible
+			
+			if not(connection_attempt_delay) then connection_attempt_delay = 1 end
+			if connection_attempt_delay < 35 then
+				connection_attempt_delay = connection_attempt_delay + 1
+			else
+
 				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-				if connectedclient and not err then
+				while err == nil and connectedclient == nil do
 					emu.frameadvance()
 				end
-				debug("fail")
+				if err == "already connected" then
+					connectedclient = 1
+				end
 			end
-			client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
-			debug("You are the Client.")
-			--give host priority to the server side
-		    memory.writebyte(0x0801A11C,0x1)
-		    memory.writebyte(0x0801A11D,0x5)
-		    memory.writebyte(0x0801A120,0x0)
-		    memory.writebyte(0x0801A121,0x2)
-			defineopponent()
 		end
-		
-		
+	end
+	
+	
+	if connectedclient then
+
+		debug(connectedclient)
+		connection_attempt_delay = nil
+		Init_p2p_Connection_looped = nil
+		host_server, host_err = nil
+
+		defineopponent()
+
 		if PLAYERNUM == 1 then
+			debug("Connected as Server.")
 			ip, port = connectedclient:getpeername()
 			connectedclient:close()
 			tcp:close()
 			opponent:setsockname(HOST_IP, HOST_PORT)
 			opponent:setpeername(ip, port)
 		else
+	--		client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
+			debug("Connected as Client.")
+			--give host priority to the server side
+		    memory.writebyte(0x0801A11C,0x1)
+		    memory.writebyte(0x0801A11D,0x5)
+		    memory.writebyte(0x0801A120,0x0)
+		    memory.writebyte(0x0801A121,0x2)
 			ip, port = tcp:getsockname()
 			tcp:close()
 			opponent:setsockname(ip, port)
 			opponent:setpeername(HOST_IP, HOST_PORT)
+			debug(HOST_IP..", "..HOST_PORT)
 		end
-		
 		-- Finalize Connection
-		if connectedclient then
-			connected = true
-			debug("Connected!")
+		connected = true
+	end
+--coroutine.yield()
+end
+
+coco = coroutine.create(function() Init_p2p_Connection() end)
+
+
+
+-- Main Loop
+while true do
+	
+
+	if connected ~= true and thisispvp == 1 and PLAYERNUM > 0 then
+
+		if coroutine.status(coco) == "dead" then
+			coco = coroutine.create(function() Init_p2p_Connection() end)
 		end
+		if coroutine.status(coco) == "suspended" then
+			coroutine.resume(coco)
+		end
+
 	elseif connected == true then
 		gui.drawText(220, 1, "p"..PLAYERNUM, "white")
 	end
