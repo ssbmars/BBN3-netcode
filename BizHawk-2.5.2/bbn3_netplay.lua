@@ -47,7 +47,8 @@ local function preconnect()
 	local ip, dnsdata = socket.dns.toip(HOST_IP)
 	HOST_IP = ip
 
-	tcp:settimeout(1/30,'b')
+--	tcp:settimeout(1/30,'b')
+	tcp:settimeout(1 / (16777216 / 280896),'b')
 
 
 	PORTNUM = PLAYERNUM - 1
@@ -849,6 +850,7 @@ local function Init_p2p_Connection()
 				while host_server == nil do
 					host_server, host_err = tcp:listen(1)
 					emu.frameadvance()
+					print("bingus")
 				end
 				if host_server ~= nil then
 					connectedclient = tcp:accept()
@@ -877,10 +879,6 @@ local function Init_p2p_Connection()
 					connectedclient = 1
 				end
 			end
-
-		--	if connectedclient and not err then
-		--	end
-		--	debug("fail")
 		end
 	end
 	
