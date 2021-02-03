@@ -74,24 +74,46 @@ end
 
 
 local function gui_src()
-	VSimg = "gui_Sprites\\vs_text.png"
+	VSimgo = "gui_Sprites\\vs_text.png"
+	VSimgt = "gui_Sprites\\vs_text_t.png"
 	bigpet = "gui_Sprites\\PET_big.png"
 	smallpet = "gui_Sprites\\PET_small_blue.png"
 	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
+	p1nameplate = "gui_Sprites\\p1nameplate.png"
+	p2nameplate = "gui_Sprites\\p2nameplate.png"
+
 	signal_anim = "gui_Sprites\\search_signal_blue.png"
-	dur_max_signal = 4
-	cnt_max_signal = 6
-	dur_signal = 0
-	cnt_signal = 0
-	xreg_signal = 24
-	yreg_signal = 16
+		dur_max_signal = 4
+		cnt_max_signal = 6
+		dur_signal = 0
+		cnt_signal = 0
+		xreg_signal = 24
+		yreg_signal = 16
+
+
+	humor2 = "gui_Sprites\\humor2.png"
+	style_h = 40
+	style_w = 130
+
+	motion_b = "gui_Sprites\\motion_bg_blue.png"
+	motion_p = "gui_Sprites\\motion_bg_pink.png"
+		motion_bg_w = 256
+	f1_motion_b = "gui_Sprites\\f1_motion_bg_blue.png"
+	f1_motion_p = "gui_Sprites\\f1_motion_bg_pink.png"
+
+	f2_motion_b = "gui_Sprites\\f2_motion_bg_blue.png"
+	f2_motion_p = "gui_Sprites\\f2_motion_bg_pink.png"
+
+	f3_motion_b = "gui_Sprites\\f3_motion_bg_blue.png"
+	f3_motion_p = "gui_Sprites\\f3_motion_bg_pink.png"
+
 end
 
 
 local function cleanstate()
 	--define variables that we might adjust sometimes
 	
-	BufferVal = 1		--input lag value in frames
+	BufferVal = 4		--input lag value in frames
 	debugmessages = 1	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
@@ -279,7 +301,7 @@ local function receivepackets()
 	err = nil
 	part = nil
 	while true do
-		gui.drawText(1, 140, "co", "white")
+	--	gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
 		if data ~= nil then -- Receive Data
 			if string.match(data, "get") == "get" then -- Received Ack
@@ -353,7 +375,7 @@ local function receivepackets()
 			end
 			coroutine.yield()
 		else
-			gui.drawText(80, 120, "nothin", "white")
+		--	gui.drawText(80, 120, "nothin", "white")
 			coroutine.yield()
 		end
 	end
@@ -372,6 +394,7 @@ end
 
 local function Init_Battle_Vis()
 
+	--[[
 	local style = {}
 	local function def_styles(...)
 		for pos, val in pairs({...}) do
@@ -379,7 +402,9 @@ local function Init_Battle_Vis()
 		end
 	end
 	def_styles("Normal","Guts","Custom","Team","Shield","Ground","Shadow","Bug")
+	]]
 
+	--[[
 	local elem = {}
 	local function def_elems(...)
 		for pos, val in pairs({...}) do
@@ -387,6 +412,16 @@ local function Init_Battle_Vis()
 		end
 	end
 	def_elems("Null","Elec","Heat","Aqua","Wood")
+	]]
+
+
+	local style = 
+		{[1] = "Normal", [2] = "Guts", [3] = "Custom", [4] = "Team", 
+		 [5] = "Shield", [6] = "Ground", [7] = "Shadow", [8] = "Bug"}
+
+	local elem = {[1] = "Null", [2] = 0, [3] = 1, [4] = 2, [5] = 3}
+	-- style order: Null, Elec, Heat, Aqua, Wood
+
 
 	--define for local player
 	local stylebyte = memory.read_u8(PLS_Style)
@@ -397,6 +432,32 @@ local function Init_Battle_Vis()
 	local stylebyte = math.floor(s[4] % 256)
 	vis_style_R1 = style[1+(bit.band(stylebyte, 0x38)/8)]
 	vis_elem_R1 = elem[1+bit.band(stylebyte, 0x7)]
+
+	--define the file string for each player's megaman style 
+	p1_char = "gui_Sprites\\style_"..vis_style_L..".png"
+	p2_char = "gui_Sprites\\style_"..vis_style_R1..".png"
+
+	local function checkelem(style, elem)
+		if elem == "Null" then
+			if style == "Normal" then
+				elem = 0
+				--NCP easter eggs here, but not yet cuz press is always installed
+			else
+				--the player is cheating if this returns true
+			end
+		elseif style == "Normal" then
+			--this also means the player is cheating by having an elemental NormalStyle
+			elem = 0
+		end
+		return elem 
+	end
+
+	vis_elem_L = checkelem(vis_style_L, vis_elem_L)
+	vis_elem_R1 = checkelem(vis_style_R1, vis_elem_R1)
+
+--	p1_char = s_guts
+--	p2_char = s_shadow
+
 
 
 	--decide how much to offset the wait time, to sync up battle start times
@@ -420,14 +481,15 @@ local function Init_Battle_Vis()
 	end
 	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
 
-	vis_looptimes = 90
+	vis_looptimes = 180
+	vis_looptimes_max = vis_looptimes
 	vis_vs_zoom = {}
 	local function def_vs_frame_zooms(...)
 		for pos, val in pairs({...}) do
 			vis_vs_zoom[pos] = val
 		end
 	end
-	def_vs_frame_zooms(0, 0, 0, 0, 0, 7, 6, 5, 4, 3, 2, 1.3, 0.9, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.9, 1, 0.9)
+	def_vs_frame_zooms(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 6, 5, 4, 3, 2, 1.3, 0.9, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.9, 1, 0.9)
 end
 
 
@@ -435,26 +497,109 @@ local function Battle_Vis()
 
 	if not(scene_anim) then scene_anim = 1 end
 
+	local movetext = 0
+
+	local function bg_animation(scroll)
+		--top backgrounds
+		gui.drawImage(motion_b, -scroll, 30)
+		gui.drawImage(motion_b, motion_bg_w -scroll, 30)
+
+		--bottom backgrounds
+		gui.drawImage(motion_p, scroll, 140 -style_h)
+		gui.drawImage(motion_p, -motion_bg_w +scroll, 140 -style_h)
+	end
+
+	if scene_anim > 9 then
+
+		local scroll = scene_anim*5
+		while scroll > motion_bg_w do
+			scroll = scroll - motion_bg_w
+		end
+
+		local swooshin = (scene_anim - 10)*6
+		if swooshin > style_w then
+			swooshin = style_w
+		end
+
+		--exit animation
+		local exit_time = 35
+		if vis_looptimes < exit_time then
+			swooshin = 240 + style_w
+			if vis_looptimes > 8 then
+				swooshin = style_w + (exit_time-vis_looptimes)*8
+				bg_animation(scroll)
+			elseif vis_looptimes > 5 then 
+
+				gui.drawImage(f3_motion_b, 0, 30)
+				gui.drawImage(f3_motion_p, 0, 140 -style_h)
+			elseif vis_looptimes > 3 then
+				gui.drawImage(f2_motion_b, 0, 30)
+				gui.drawImage(f2_motion_p, 0, 140 -style_h)
+			elseif vis_looptimes > 1 then
+				gui.drawImage(f1_motion_b, 0, 30)
+				gui.drawImage(f1_motion_p, 0, 140 -style_h)
+			end
+		else --normal loop
+			bg_animation(scroll)
+		end
+	
+		--both megamans
+	--	gui.drawImage(p1_char, swooshin -style_w, 30)
+	--	gui.drawImage(p2_char, 240 + style_w -swooshin, 140 -style_h, -style_w)
+		gui.drawImageRegion(p1_char, 0, vis_elem_L*style_h, style_w, style_h, swooshin -style_w, 30)
+		gui.drawImageRegion(p2_char, 0, vis_elem_R1*style_h, style_w, style_h, 240 + style_w -swooshin, 140 -style_h, -style_w)
+
+	--intro animation
+	elseif scene_anim < 3 then
+		gui.drawImage(f1_motion_b, 0, 30)
+		gui.drawImage(f1_motion_p, 0, 140 -style_h)
+	elseif scene_anim < 6 then
+		gui.drawImage(f2_motion_b, 0, 30)
+		gui.drawImage(f2_motion_p, 0, 140 -style_h)
+	else
+		gui.drawImage(f3_motion_b, 0, 30)
+		gui.drawImage(f3_motion_p, 0, 140 -style_h)
+	end
+
+	if vis_looptimes < 8 then
+		movetext = 8 - vis_looptimes
+	end
+
 	--left megaman
-	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
+	gui.drawText(5, 29 +style_h +movetext, "NetBattler1", "white", nil, nil, nil, "left","top")
 
 	--right megaman
-	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
+	gui.drawText(235, 140 -style_h -movetext, "NetBattler2", "white", nil, nil, nil, "right","bottom")
 
---	gui.drawText(120, 80, "VS", "white", nil, nil, nil, "center","middle")
-	
+
+	--left megaman
+--	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
+	--right megaman
+--	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
+
+
+	--animate the VS image flying in
 	local multiplier = 1
 	if vis_vs_zoom[scene_anim] then 
 		multiplier = vis_vs_zoom[scene_anim]
 	end
-
+	if vis_looptimes < 8 then
+		multiplier = vis_looptimes /10
+	end
 	vs_xsize = 48 * multiplier
 	vs_ysize = 24 * multiplier
+	if multiplier < 4 then
+		VSimg = VSimgo
+	else
+		VSimg = VSimgt
+	end
+	gui.drawImage(VSimg, 120 -vs_xsize/2, 85 -vs_ysize/2, vs_xsize, vs_ysize)
 
-	gui.drawImage(VSimg, 120 -vs_xsize/2, 80 -vs_ysize/2, vs_xsize, vs_ysize)
+
 	scene_anim = scene_anim + 1
 	return scene_anim
 end
+
 
 
 local function FrameStart()
@@ -739,9 +884,17 @@ local function ApplyRemoteInputs()
 			local pointer = 0
 			local match = false
 			local stacksize = memory.read_u8(InputStackSize)
-	
+			local currentpacket = 1
+
+			while c[currentpacket][2] == nil do
+				currentpacket = currentpacket + 1
+				if currentpacket >= #c then
+					return
+				end
+			end
+
 			while match == false do
-				if (c[1][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
+				if (c[currentpacket][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
 					match = true
 				else
 					pointer = pointer + 1
@@ -758,12 +911,12 @@ local function ApplyRemoteInputs()
 					--record the guessed input before overwriting
 					local iGuess = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
 					--write the received input (halfword)
-					memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+					memory.write_u32_le(InputStackRemote + pointer*0x10, c[currentpacket][2])
 					--load the received input (halfword) into a variable for comparison
 					iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
 					--compare both inputs, set the rollback flag if they don't match
 					if iGuess ~= iCorrected then
-						rbAmount =  math.floor(localtimestamp - (c[1][2] % 256) %256)
+						rbAmount =  math.floor(localtimestamp - (c[currentpacket][2] % 256) %256)
 						--this will use the pointer to decide how many frames back to jump
 						--it can rewrite the flag many times in a frame, but it will keep the largest value for that frame
 						if memory.read_u8(rollbackflag) < rbAmount then
@@ -773,7 +926,7 @@ local function ApplyRemoteInputs()
 					table.remove(c,1)
 				else
 				--runs when the input was received on time
-					memory.write_u32_le(InputStackRemote + pointer*0x10, c[1][2])
+					memory.write_u32_le(InputStackRemote + pointer*0x10, c[currentpacket][2])
 					table.remove(c,1)
 				end
 			else
@@ -786,7 +939,7 @@ local function ApplyRemoteInputs()
 					memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
 					table.remove(CycleInputStack,#CycleInputStack)
 				end
-				memory.write_u32_le(InputStackRemote, c[1][2])
+				memory.write_u32_le(InputStackRemote, c[currentpacket][2])
 				table.remove(c,1)		
 			end
 		end
