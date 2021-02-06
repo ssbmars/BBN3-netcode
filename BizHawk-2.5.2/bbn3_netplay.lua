@@ -303,51 +303,75 @@ local function receivepackets()
 	while true do
 	--	gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
-		if data ~= nil then -- Receive Data
-			if string.match(data, "get") == "get" then -- Received Ack
+		-- Data will not be nil if a full data packet has been received.
+		-- Otherwise an error and partial data is thrown.
+		-- We're checking specifically for full packets, dropped or partial packets aren't good enough.
+		if data ~= nil then
+			-- A "Get" is received when you send an ack to your opponent(s) and they acknowledge that they received it.
+			-- Once this has been received, clear out the correct slot in the local frame table so that we can free up some space.
+			if string.match(data, "get") == "get" then
 				local frame = string.match(data, "(%d+)")
 				frametable[frame][1] = nil
 				frametable[frame][2] = nil
 				frametable[frame][3] = nil
 				frametable[frame] = nil
 				timedout = 0
-			elseif string.match(data, "ack") == "ack" then -- Getting Ack
+			-- An incoming ack, sent before incoming data.
+			-- Used to make sure each player's frame tables are in-sync.
+			elseif string.match(data, "ack") == "ack" then
 				acked = string.match(data, "(%d+)")
-				opponent:send("get,"..string.match(data, "(%d+)")) -- Acked Frame
+				opponent:send("get,"..string.match(data, "(%d+)"))
 				timedout = 0
 			end
-			if data == "end" then -- End of Data Stream
+			-- The End of the incoming data buffer.
+			-- Just used to clear some variables and tell the user they're no longer being acked.
+			if data == "end" then
 				data = nil
 				err = nil
 				part = nil
 				acked = nil
-				--coroutine.yield()	
-			elseif data == "disconnect" then -- Disconnecting
+			-- If a player sends a disconnect packet, make sure to self-disconnect.
+			-- Looks like you guys made it close the battle as well.
+			elseif data == "disconnect" then
 				gui.drawText(80, 120, "close", "white")
 				connected = nil
 				acked = nil
 				closebattle()
 				--break
 			else
-				if data == "control" and #ctrl == 5 then -- Player Control Information
+				-- Save the buffered data to the Player Control Information.
+				-- The Control Information includes things like gamestate and player inputs.
+				-- Clears out the buffered control table afterward.
+				if data == "control" and #ctrl == 5 then
 					c[#c+1] = ctrl
 					ctrl = {}
 			--		gui.drawText(80, 120, "ctrl", "white")
 				end
-				if data == "stats" and #t == 19 then -- Player Stats
+				-- Save the buffered data to the Player Stats table.
+				-- The Stats include things like the Player's NCP Setup, their HP, etc.
+				-- Clears out the buffered data table afterward.
+				if data == "stats" and #t == 19 then
 					s = t
 					t = {}
 				end
-				if data == "loadround" and #t == 9 then -- Player Load Round Timer
+				-- Save the buffered data to the Player's "Load Round" table.
+				-- This table loads things like Custom Screen state, RNG values, The Pre-round Timer, Input Delay, etc.
+				-- Again, clears out the buffered data table afterward.
+				if data == "loadround" and #t == 9 then
 					l = t
 					t = {}
 			--		gui.drawText(80, 100, "load", "white")
 				end
+				
+				-- This for loop grabs numerical values from the received packet.
 				local str = {}
 				local w = ""
 				for w in string.gmatch(data, "(%d+)") do
 					str[#str+1] = w
 				end
+				
+				-- This if statement block turns the numerical values grabbed from the above for loop
+				-- and turns them into actual numbers. The packet requires strings, so we have to preconvert both ways.
 				if #str > 0 then
 					if tonumber(str[1]) == 0 then
 						ctrl[tonumber(str[2])] = tonumber(str[3])
@@ -358,6 +382,8 @@ local function receivepackets()
 					end
 				end
 			end
+		-- If you time out, yield the coroutine and attempt to perform some rollback.
+		-- Credit to Mars for the rollback code.
 		elseif err == "timeout" then -- Timed Out
 			data = nil
 			err = nil
@@ -365,8 +391,8 @@ local function receivepackets()
 			acked = nil
 			timedout = timedout + 1
 			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
-			--	emu.yield()
-			gui.drawText(80, 120, "timeout", "white")
+				--	emu.yield()
+				gui.drawText(80, 120, "timeout", "white")
 				if timedout >= 60*5 then
 				--	connected = nil
 				--	acked = nil
@@ -694,25 +720,35 @@ local function sendhand()
 	local WriteType = memory.read_u8(0x02036830)
 	if emu.getregister("R1") == 0x02036940 and emu.getregister("R3") == 0x34 and WriteType == 0x2 then
 		debug("sent hand")
-			
-		local frametime = math.floor((socket.gettime()*10000) % 0x10000) -- Ack Time
+		
+		-- Get Frame Time.
+		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		
+		-- Write new entry to the frame table.
 		if type(frametable[tostring(frametime)]) == "nil" then
 			frametable[tostring(frametime)] = {{},{},{}}
 		end
+		
+		-- Write Player Stats to the Frame Table.
 		frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
 		frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
+		
+		-- This for loop grabs most if not all of the Player's Stats.
 		local i = 0
 		for i=0,0x10 do
-			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
+			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4))
 		end
-		opponent:send("ack,"..tostring(frametime)) -- Ack Time
-			
+		
+		-- Send an Ack to the opponent.
+		opponent:send("ack,"..tostring(frametime))
+		
+		-- Send the frame table to the opponent.
 		opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
 		opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
 		for i=0,0x10 do
 			opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 		end
-		opponent:send("stats")
+		opponent:send("stats") -- This tells the opponent what the packets are for.
 			
 		--[[
 		if acked and type(frametable[acked]) == "table" then
@@ -748,25 +784,35 @@ local function SendStats()
 	end
 	if opponent == nil then debug("nopponent") return end
 
+	-- Get Frame Timer.
 	local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+	
 	TimeStatsWereSent = frametime --we're saving this for later
+	
+	-- Write new entry to frame table.
 	if type(frametable[tostring(frametime)]) == "nil" then
 		frametable[tostring(frametime)] = {{},{},{}}
 	end
+	
+	-- Write Player Stats to Frame Table.
 	frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
 	frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
+	
+	-- This for loop grabs most if not all of the Player's Stats.
 	local i = 0
 	for i=0,0x10 do
 		frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
 	end
+	-- Send an ack to the opponent.
 	opponent:send("ack,"..tostring(frametime)) -- Ack Time
-		
+	
+	-- Send the frame table to the opponent.
 	opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
 	opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
 	for i=0,0x10 do
 		opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 	end
-	opponent:send("stats")
+	opponent:send("stats") -- This tells the opponent what the packets are for.
 		
 	--[[
 	if acked ~= nil and type(frametable[acked]) == "table" then
@@ -1161,20 +1207,38 @@ while true do
 			end
 		end
 		
-		-- Write new data to Frame Table
+		-- Get Frame Time
 		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		
+		-- Write new entry to Frame Table
 		if type(frametable[tostring(frametime)]) == "nil" then
+			-- The Frame Table is a 3-dimensional dictionary that uses frametimes as the main indices.
+			-- For each Frame Time listed in the frame table, there are 3 subtables which each hold further subtables full of packet data.
+			-- Subtable 1 is the Player Control Information subtable, used to sync inputs and gamestate info.
+			-- Subtable 2 is the Player Stats subtable, used to obviously sync player stats.
+			-- Subtable 3 is the "Load Round" subtable, used to sync pre-round information.
+			-- If you guys have to add more subtables, don't increase or decrease this dictionary from being 3-dimensional.
 			frametable[tostring(frametime)] = {{},{},{}}
+			
+			-- If you notice below, the frame table's subtables start at 1 while the packet table indices start at 0.
+			-- While not necessary, I did this in the receivepackets() function to turn the values we're converting to strings here back into numbers.
+			-- You can either fix it or keep the trend going, up to you. It only really matters if you decide to add more subtables.
 		end
+		
+		-- Writing the Player Control Information subtable values.
 		frametable[tostring(frametime)][1][1] = tostring(PLAYERNUM)
 		frametable[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
 		frametable[tostring(frametime)][1][3] = tostring(memory.read_u8(SceneIndicator))
 		frametable[tostring(frametime)][1][4] = tostring(waitingforpvp)
 		frametable[tostring(frametime)][1][5] = tostring(frametime)
 		
+		-- Start writing the "Load Round" subtable values.
 		frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
-		frametable[tostring(frametime)][3][2] = tostring(memory.read_u8(0x2036830))
+		frametable[tostring(frametime)][3][2] = tostring(memory.read_u8(0x2036830)) -- Custom Screen Bar Value
 		frametable[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
+		
+		-- This if statement block is used to count down the waitingforround timer.
+		-- It also syncs the values between both players, or at least attempts to.
 		if type(l) == "table" and type(l[4]) == "number" and waitingforround == 1 and l[5] == 1 then
 			l[4] = l[4]-1
 			frametable[tostring(frametime)][3][4] = tostring(l[4])
@@ -1183,21 +1247,27 @@ while true do
 		else
 			frametable[tostring(frametime)][3][4] = tostring(0x3C)
 		end
+		
+		-- Finish writing the "Load Round" subtable values.
 		frametable[tostring(frametime)][3][5] = tostring(waitingforround)
 		frametable[tostring(frametime)][3][6] = tostring(memory.read_u16_le(PlayerHPLocal))
-		frametable[tostring(frametime)][3][7] = tostring(memory.read_u32_le(0x02009730))
-		frametable[tostring(frametime)][3][8] = tostring(memory.read_u32_le(0x02009800))
-		frametable[tostring(frametime)][3][9] = tostring(memory.read_u16_le(0x0203b380))
+		frametable[tostring(frametime)][3][7] = tostring(memory.read_u32_le(0x02009730)) -- RNG 2
+		frametable[tostring(frametime)][3][8] = tostring(memory.read_u32_le(0x02009800)) -- RNG 1
+		frametable[tostring(frametime)][3][9] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
 	
 		-- Send Ack to Opponent
 		opponent:send("ack,"..tostring(frametime)) -- Ack Time
 		-- Send Frame Table to Opponent
+		
+		-- Control Information table
 		opponent:send("0,1,"..frametable[tostring(frametime)][1][1])
 		opponent:send("0,2,"..frametable[tostring(frametime)][1][2])
 		opponent:send("0,3,"..frametable[tostring(frametime)][1][3])
 		opponent:send("0,4,"..frametable[tostring(frametime)][1][4])
 		opponent:send("0,5,"..frametable[tostring(frametime)][1][5])
-		opponent:send("control")
+		opponent:send("control") -- This tells the opponent what the packets are for.
+		
+		-- "Load Round" table
 		opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
 		opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
 		opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
@@ -1207,7 +1277,9 @@ while true do
 		opponent:send("2,7,"..frametable[tostring(frametime)][3][7])
 		opponent:send("2,8,"..frametable[tostring(frametime)][3][8])
 		opponent:send("2,9,"..frametable[tostring(frametime)][3][9])
-		opponent:send("loadround")
+		opponent:send("loadround") -- This tells the opponent what the packets are for.
+		
+		-- End the data stream
 		opponent:send("end")
 		
 		--[[
