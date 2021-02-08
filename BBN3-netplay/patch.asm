@@ -720,7 +720,7 @@ Nothing that branches to any of this code uses hardcoded addresses, instead they
 
 StallBattleStart:
 
-	sub		r1,20h
+	sub		r1,21h
 @@loopstart:
 	ldrb	r0,[r1]
 	tst		r0,r0

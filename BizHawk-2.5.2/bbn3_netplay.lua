@@ -167,7 +167,7 @@ local function cleanstate()
 	SceneIndicator = 0x020097F8
 	StartBattleFlipped = 0x0203B362
 
-	PreloadStats = 0x0200F330
+	PreloadStats = 30
 	PLS_Style = PreloadStats + 0x4
 	PLS_HP = PreloadStats + 0x8
 	
@@ -779,7 +779,7 @@ event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
 -- Sync Data on Match Load
 local function SendStats()
 	if thisispvp == 0 then 
-		memory.write_u8(0x0200F320, 0x0)
+		memory.write_u8(0x0200F31F, 0x0)
 		return
 	end
 	if opponent == nil then debug("nopponent") return end
@@ -828,7 +828,7 @@ local function SendStats()
 	debug("sending stats")
 	StallingBattle = true
 	received_stats = false
-	memory.write_u8(0x0200F320, 0x1) -- 0x1
+	memory.write_u8(0x0200F31F, 0x1) -- 0x1
 end
 event.onmemoryexecute(SendStats,0x0800761A,"SendStats")
 
@@ -1151,7 +1151,7 @@ while true do
 				scene_anim = Battle_Vis()
 			else
 				StallingBattle = false
-				memory.write_u8(0x0200F320, 0x0)
+				memory.write_u8(0x0200F31F, 0x0)
 				client.exactsleep(sleeptime)
 				prevsockettime = nil
 			end
