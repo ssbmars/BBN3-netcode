@@ -11,5 +11,5 @@ There are two batch files for quickly launching the netplay script along with BB
 
 # Misc
 
-According to Bizhawk's documentation, the scripting feature is only compatible with 64bit Windows systems. 
-There is nothing we can do about this; the Bizhawk developers simply haven't brought the scripting capabilities to Linux.
+According to Bizhawk's documentation, the scripting feature is only compatible with 64bit Windows systems.  
+There is nothing we can do about this. The Bizhawk developers simply haven't brought the scripting capabilities to Linux.
