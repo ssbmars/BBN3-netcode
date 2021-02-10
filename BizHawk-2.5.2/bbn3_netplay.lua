@@ -122,7 +122,7 @@ local function cleanstate()
 	client.displaymessages(false)
 	emu.minimizeframeskip(true)
 	client.frameskip(9)
-	HideResim = 0
+	HideResim = 1
 	TargetFrame = 167.427063 --166.67
 	
 	--set empty variables at script start
@@ -337,7 +337,7 @@ local function receivepackets()
 				connected = nil
 				acked = nil
 				closebattle()
-				--break
+				break
 			else
 				-- Save the buffered data to the Player Control Information.
 				-- The Control Information includes things like gamestate and player inputs.
@@ -384,25 +384,26 @@ local function receivepackets()
 			end
 		-- If you time out, yield the coroutine and attempt to perform some rollback.
 		-- Credit to Mars for the rollback code.
-		elseif err == "timeout" then -- Timed Out
+		else--if err == "timeout" then -- Timed Out
 			data = nil
 			err = nil
 			part = nil
 			acked = nil
 			timedout = timedout + 1
-			if timedout >= memory.read_u8(InputBufferRemote) + saferollback then
+		--	gui.drawText(80, 120, "timeout")
+			if timedout >= 3*(memory.read_u8(InputBufferRemote) + saferollback) then
 				--	emu.yield()
-				gui.drawText(80, 120, "timeout", "white")
-				if timedout >= 60*5 then
+				if timedout >= 60*7 then
 					connected = nil
-				--	acked = nil
-				--	break
+					acked = nil
+					break
 				end
 			end
 			coroutine.yield()
-		else
-		--	gui.drawText(80, 120, "nothin", "white")
-			coroutine.yield()
+	--	else
+	--		gui.drawText(100, 120, "nothin", "white")
+	--		coroutine.yield()
+
 		end
 	end
 end
@@ -643,7 +644,6 @@ local function FrameStart()
 	if prevsockettime then 
 		timepast = math.floor((sockettime - prevsockettime) % 0x10000)
 		timerift = timerift + timepast - TargetFrame
-		gui.drawText(1, 14, math.floor(timerift), "white")
 		if timerift > TargetFrame then 
 			--speed up if the timerift has surpassed 1 frame worth of ms
 			if framethrottle == true then 
@@ -651,8 +651,10 @@ local function FrameStart()
 				framethrottle = false
 				gui.drawText(1, 23, "FAST", "white")
 			end
+			gui.drawText(1, 14, math.floor(timerift), "white")
 		elseif timerift < -20 then
-				client.sleep(math.abs(timerift)/5)
+			client.sleep(math.abs(timerift)/5)
+			gui.drawText(1, 14, math.floor(timerift), "white")
 		else
 			if framethrottle == false then
 				emu.limitframerate(true)
@@ -1130,7 +1132,7 @@ coco = coroutine.create(function() Init_p2p_Connection() end)
 while true do
 	
 
-	if connected ~= true and thisispvp == 1 and PLAYERNUM > 0 then
+	if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
 
 		if coroutine.status(coco) == "dead" then
 			coco = coroutine.create(function() Init_p2p_Connection() end)
