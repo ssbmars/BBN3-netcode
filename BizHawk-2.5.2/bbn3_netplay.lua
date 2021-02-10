@@ -166,8 +166,9 @@ local function cleanstate()
 	rollbackflag = InputData + 0x6
 	SceneIndicator = 0x020097F8
 	StartBattleFlipped = 0x0203B362
+	EndBattleEarly = 0x0203B365
 
-	PreloadStats = 30
+	PreloadStats = 0x0200F330
 	PLS_Style = PreloadStats + 0x4
 	PLS_HP = PreloadStats + 0x8
 	
@@ -301,7 +302,7 @@ local function receivepackets()
 	err = nil
 	part = nil
 	while true do
-	--	gui.drawText(1, 140, "co", "white")
+		gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
 		-- Data will not be nil if a full data packet has been received.
 		-- Otherwise an error and partial data is thrown.
@@ -333,7 +334,6 @@ local function receivepackets()
 			-- If a player sends a disconnect packet, make sure to self-disconnect.
 			-- Looks like you guys made it close the battle as well.
 			elseif data == "disconnect" then
-				gui.drawText(80, 120, "close", "white")
 				connected = nil
 				acked = nil
 				closebattle()
@@ -394,7 +394,7 @@ local function receivepackets()
 				--	emu.yield()
 				gui.drawText(80, 120, "timeout", "white")
 				if timedout >= 60*5 then
-				--	connected = nil
+					connected = nil
 				--	acked = nil
 				--	break
 				end
@@ -445,7 +445,7 @@ local function Init_Battle_Vis()
 		{[1] = "Normal", [2] = "Guts", [3] = "Custom", [4] = "Team", 
 		 [5] = "Shield", [6] = "Ground", [7] = "Shadow", [8] = "Bug"}
 
-	local elem = {[1] = "Null", [2] = 0, [3] = 1, [4] = 2, [5] = 3}
+	local elem = {[1] = "Nullelem", [2] = 0, [3] = 1, [4] = 2, [5] = 3}
 	-- style order: Null, Elec, Heat, Aqua, Wood
 
 
@@ -464,7 +464,7 @@ local function Init_Battle_Vis()
 	p2_char = "gui_Sprites\\style_"..vis_style_R1..".png"
 
 	local function checkelem(style, elem)
-		if elem == "Null" then
+		if elem == "Nullelem" then
 			if style == "Normal" then
 				elem = 0
 				--NCP easter eggs here, but not yet cuz press is always installed
@@ -1008,6 +1008,11 @@ local function ApplyRemoteInputs()
 	else
 		--if no input was received this frame
 	end
+
+	--[NEW EXPERIMENTAL CONDITIONAL] exit battle with the game's 'comm error' feature if players disconnect early
+	if connected == nil then
+		memory.write_u8(EndBattleEarly, 0x1)
+	end
 end
 event.onmemoryexecute(ApplyRemoteInputs,0x08008800,"ApplyRemoteInputs")
 
@@ -1049,7 +1054,6 @@ local function Init_p2p_Connection()
 				while host_server == nil do
 					host_server, host_err = tcp:listen(1)
 					emu.frameadvance()
-					print("bingus")
 				end
 				if host_server ~= nil then
 					connectedclient = tcp:accept()
