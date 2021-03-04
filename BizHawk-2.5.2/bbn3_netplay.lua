@@ -47,7 +47,7 @@ local function preconnect()
 	local ip, dnsdata = socket.dns.toip(HOST_IP)
 	HOST_IP = ip
 
---	tcp:settimeout(1/30,'b')
+	--tcp:settimeout(1/30,'b')
 	tcp:settimeout(1 / (16777216 / 280896),'b')
 
 
@@ -113,7 +113,7 @@ end
 local function cleanstate()
 	--define variables that we might adjust sometimes
 	
-	BufferVal = 4		--input lag value in frames
+	BufferVal = 5		--input lag value in frames
 	debugmessages = 1	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
@@ -124,6 +124,8 @@ local function cleanstate()
 	client.frameskip(9)
 	HideResim = 1
 	TargetFrame = 167.427063 --166.67
+	TargetSpeed = 100
+	client.speedmode(TargetSpeed)
 	
 	--set empty variables at script start
 	rollbackframes = 0
@@ -302,7 +304,6 @@ local function receivepackets()
 	err = nil
 	part = nil
 	while true do
-		gui.drawText(1, 140, "co", "white")
 		data,err,part = opponent:receive()
 		-- Data will not be nil if a full data packet has been received.
 		-- Otherwise an error and partial data is thrown.
@@ -482,10 +483,6 @@ local function Init_Battle_Vis()
 	vis_elem_L = checkelem(vis_style_L, vis_elem_L)
 	vis_elem_R1 = checkelem(vis_style_R1, vis_elem_R1)
 
---	p1_char = s_guts
---	p2_char = s_shadow
-
-
 
 	--decide how much to offset the wait time, to sync up battle start times
 	--print(s[2] .." .. "..(math.floor((socket.gettime()*10000) % 0x10000)))
@@ -600,9 +597,9 @@ local function Battle_Vis()
 
 
 	--left megaman
---	gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
+	--gui.drawText(100, 60, vis_elem_L..vis_style_L, "white", nil, nil, nil, "right","middle")
 	--right megaman
---	gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
+	--gui.drawText(140, 60, vis_elem_R1..vis_style_R1, "white", nil, nil, nil, "left","middle")
 
 
 	--animate the VS image flying in
@@ -631,38 +628,46 @@ end
 
 local function FrameStart()
 	if thisispvp == 0 then return end 
-
 	if connected then 
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 	end
+	TimeToSlowDown = nil
+	if resimulating then return end
 
 	--compensate for local frame stuttering by temporarily speeding up
 	--make sure this also can compensate for the time spent on rollbacks
-	if resimulating then return end
 
 	sockettime = math.floor((socket.gettime()*10000) % 0x10000)
-	if prevsockettime then 
-		timepast = math.floor((sockettime - prevsockettime) % 0x10000)
-		timerift = timerift + timepast - TargetFrame
-		if timerift > TargetFrame then 
-			--speed up if the timerift has surpassed 1 frame worth of ms
-			if framethrottle == true then 
-				emu.limitframerate(false) 
-				framethrottle = false
-				gui.drawText(1, 23, "FAST", "white")
-			end
-			gui.drawText(1, 14, math.floor(timerift), "white")
-		elseif timerift < -20 then
-			client.sleep(math.abs(timerift)/5)
-			gui.drawText(1, 14, math.floor(timerift), "white")
-		else
-			if framethrottle == false then
-				emu.limitframerate(true)
-				framethrottle = true
-			end
-		end
+	if not(prevsockettime) then
+		 prevsockettime = sockettime
+		return 
 	end
+
+	timepast = math.floor((sockettime - prevsockettime) % 0x10000)
+	timerift = timerift + timepast - TargetFrame
 	prevsockettime = sockettime
+	if timerift < 0 then
+		gui.drawText(1, 14, math.floor(timerift))
+	else
+		gui.drawText(1, 14, " ".. math.floor(timerift))
+	end
+	if timerift > TargetFrame then 
+		--speed up if the timerift has surpassed 1 frame worth of ms
+		if framethrottle == true then 
+			emu.limitframerate(false) 
+			framethrottle = false
+		end
+		gui.drawText(1, 23, "FAST")
+	elseif timerift < -50 then
+		TimeToSlowDown = true
+		client.speedmode(75)
+	else
+		if framethrottle == false then
+			emu.limitframerate(true)
+			framethrottle = true
+		end
+		client.speedmode(TargetSpeed)
+	end
 end
 event.onframestart(FrameStart,"FrameStart")
 
@@ -677,7 +682,7 @@ local function custsynchro()
 		memory.write_u8(InputBufferRemote, l[3])
 		if PLAYERNUM == 1 and #l >= 6 then
 		--	memory.write_u16_le(PlayerHPRemote, l[6])
-		elseif PLAYERNUM == 2 and #l >= 6 then
+	--	elseif PLAYERNUM == 2 and #l >= 6 then
 		--	memory.write_u16_le(PlayerHPLocal, l[6])
 		--	memory.write_u32_le(0x02009730, l[7])
 		--	memory.write_u32_le(0x02009800, l[8])
@@ -685,7 +690,7 @@ local function custsynchro()
 	end
 		
 	-- Rewrite Client's Timestamp
-	if PLAYERNUM > 1 then
+	if PLAYERNUM > 4 then
 		if type(c) == "table" and #c > 0 then
 			if type(c[1]) == "table" and #c[1] > 0 then
 				if c[1][3] == 0x4 or memory.read_u8(SceneIndicator) == 0x4 then
@@ -1142,7 +1147,7 @@ while true do
 		end
 
 	elseif connected == true then
-		gui.drawText(220, 1, "p"..PLAYERNUM, "white")
+	--	gui.drawText(220, 1, "p"..PLAYERNUM, "white")
 	end
 
 	if StallingBattle == true then
@@ -1188,7 +1193,7 @@ while true do
 		if type(s) == "table" and #s == 19 then
 			local i = 0
 			for i=0x0,0x10 do
-				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Stats
+				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Hand
 				table.remove(s,#s-0x10+i)
 			end
 			CanWriteRemoteChips = false
@@ -1319,7 +1324,7 @@ while true do
 		if coroutine.status(co) == "suspended" then
 			coroutine.resume(co)
 		elseif coroutine.status(co) == "dead" then
-			debug("coroutine dead, recreating")
+		--	debug("coroutine dead, recreating")
 			co = coroutine.create(function() receivepackets() end)
 		end
 	
@@ -1397,6 +1402,8 @@ while true do
 			end
 		end
 	end
+
+
 
 	emu.frameadvance()
 end
