@@ -208,6 +208,7 @@ end
 cleanstate()
 
 
+--gui_animate(120, 80, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
 local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
 	--dur = duration of the frame, max defines how long to hold each frame for
 	--cnt = the frame that's currently being shown, max defines how many total frames exist
@@ -227,7 +228,6 @@ local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, c
 	end
 	return dur, cnt
 end
---gui_animate(120, 80, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
 
 local delaymenu = 20
 while delaymenu > 0 do
@@ -309,6 +309,34 @@ local function receivepackets()
 		-- Otherwise an error and partial data is thrown.
 		-- We're checking specifically for full packets, dropped or partial packets aren't good enough.
 		if data ~= nil then
+
+--[[
+			--messy debug check
+			if not(thisco) then
+				thisco = memory.read_u16_le(0x0203b380)
+				cyclecount = 0
+				x_shift = 0
+			end
+			if memory.read_u16_le(0x0203b380) ~= thisco then
+				thisco = memory.read_u16_le(0x0203b380)
+				cyclecount = 0
+				x_shift = 0
+			end
+			if thisco > 100 then
+				if not(cyclecount) then
+					cyclecount = 0
+				end
+			--	gui.drawText(30+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data)
+				cyclecount = cyclecount + 1
+				if cyclecount > 11 then
+					x_shift = x_shift + 1
+					cyclecount = 0
+				end
+			--print(this .."  "..data)
+			end
+			--end messy debug check
+]]
+
 			-- A "Get" is received when you send an ack to your opponent(s) and they acknowledge that they received it.
 			-- Once this has been received, clear out the correct slot in the local frame table so that we can free up some space.
 			if string.match(data, "get") == "get" then
@@ -346,7 +374,7 @@ local function receivepackets()
 				if data == "control" and #ctrl == 5 then
 					c[#c+1] = ctrl
 					ctrl = {}
-			--		gui.drawText(80, 120, "ctrl", "white")
+			--		gui.drawText(80, 120, "ctrl")
 				end
 				-- Save the buffered data to the Player Stats table.
 				-- The Stats include things like the Player's NCP Setup, their HP, etc.
@@ -361,7 +389,7 @@ local function receivepackets()
 				if data == "loadround" and #t == 9 then
 					l = t
 					t = {}
-			--		gui.drawText(80, 100, "load", "white")
+			--		gui.drawText(80, 100, "load")
 				end
 				
 				-- This for loop grabs numerical values from the received packet.
@@ -383,9 +411,12 @@ local function receivepackets()
 					end
 				end
 			end
-		-- If you time out, yield the coroutine and attempt to perform some rollback.
-		-- Credit to Mars for the rollback code.
-		else--if err == "timeout" then -- Timed Out
+
+		-- This is the only exit condition for yielding this routine. It will continue to run until a check returns no data.
+		-- Counts the amount of contiguous checks that resulted in no received data, this is to detect unhandled disconnects.
+		-- (Since this runs thrice per frame, the threshold for ending the match is 3x the amount of frames to wait.)
+		-- Currently this timeout detection is only used for ending the match. We aren't set up to safely implement lockstep here (yet?)
+		else --if err == "timeout" then -- Timed Out
 			data = nil
 			err = nil
 			part = nil
@@ -732,9 +763,7 @@ local function sendhand()
 		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
 		
 		-- Write new entry to the frame table.
-		if type(frametable[tostring(frametime)]) == "nil" then
-			frametable[tostring(frametime)] = {{},{},{}}
-		end
+		frametable[tostring(frametime)] = {{},{},{}}
 		
 		-- Write Player Stats to the Frame Table.
 		frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
@@ -797,9 +826,7 @@ local function SendStats()
 	TimeStatsWereSent = frametime --we're saving this for later
 	
 	-- Write new entry to frame table.
-	if type(frametable[tostring(frametime)]) == "nil" then
-		frametable[tostring(frametime)] = {{},{},{}}
-	end
+	frametable[tostring(frametime)] = {{},{},{}}
 	
 	-- Write Player Stats to Frame Table.
 	frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
@@ -910,8 +937,8 @@ event.onmemoryexecute(SetPlayerPorts,0x08008804,"SetPlayerPorts")
 
 local function ApplyRemoteInputs()
 	if thisispvp == 0 then return end
-	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 	if resimulating then return end
+	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
 	--write the last received input to the latest entry, This will be undone when the corresponding input is received
 	memory.write_u16_le(InputStackRemote+0x2, lastinput)
@@ -1207,35 +1234,47 @@ while true do
 	if opponent ~= nil and connected and not(resimulating) then
 		
 		-- Sort and clean Frame Table's earliest frames
-		while #frametable >= savcount do
+
+		local frametableSize = 0
+		for k,v in pairs(frametable) do
+		    frametableSize = frametableSize + 1
+		end
+		--debugging stuff
+		gui.drawText(1, 34, frametableSize)
+		local debuggingtimestamp = bizstring.hex(memory.read_u16_le(0x0203b380))
+		gui.drawText(1, 46, debuggingtimestamp)
+		-- e
+
+		while frametableSize >= 120 do
 			for k,v in pairs(frametable) do
 				frametable[k][1] = nil
 				frametable[k][2] = nil
 				frametable[k][3] = nil
 				frametable[k] = nil
-				debug("Removing #"..k.." from frametable.")
+				frametableSize = frametableSize - 1
+			--	debug("Removing #"..k.." from frametable.")
 				break
 			end
 		end
+
 		
 		-- Get Frame Time
 		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
 		
 		-- Write new entry to Frame Table
-		if type(frametable[tostring(frametime)]) == "nil" then
+		frametable[tostring(frametime)] = {{},{},{}}
 			-- The Frame Table is a 3-dimensional dictionary that uses frametimes as the main indices.
 			-- For each Frame Time listed in the frame table, there are 3 subtables which each hold further subtables full of packet data.
 			-- Subtable 1 is the Player Control Information subtable, used to sync inputs and gamestate info.
 			-- Subtable 2 is the Player Stats subtable, used to obviously sync player stats.
 			-- Subtable 3 is the "Load Round" subtable, used to sync pre-round information.
 			-- If you guys have to add more subtables, don't increase or decrease this dictionary from being 3-dimensional.
-			frametable[tostring(frametime)] = {{},{},{}}
 			
 			-- If you notice below, the frame table's subtables start at 1 while the packet table indices start at 0.
 			-- While not necessary, I did this in the receivepackets() function to turn the values we're converting to strings here back into numbers.
 			-- You can either fix it or keep the trend going, up to you. It only really matters if you decide to add more subtables.
-		end
 		
+
 		-- Writing the Player Control Information subtable values.
 		frametable[tostring(frametime)][1][1] = tostring(PLAYERNUM)
 		frametable[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
