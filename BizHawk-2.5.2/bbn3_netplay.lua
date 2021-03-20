@@ -51,6 +51,7 @@ local function preconnect()
 	tcp:settimeout(1 / (16777216 / 280896),'b')
 
 
+	--define controller ports and offsets for individual players
 	PORTNUM = PLAYERNUM - 1
 	InputBufferLocal = InputData + PLAYERNUM
 	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
@@ -79,8 +80,6 @@ local function gui_src()
 	bigpet = "gui_Sprites\\PET_big.png"
 	smallpet = "gui_Sprites\\PET_small_blue.png"
 	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
-	p1nameplate = "gui_Sprites\\p1nameplate.png"
-	p2nameplate = "gui_Sprites\\p2nameplate.png"
 
 	signal_anim = "gui_Sprites\\search_signal_blue.png"
 		dur_max_signal = 4
@@ -91,10 +90,8 @@ local function gui_src()
 		yreg_signal = 16
 
 
-	humor2 = "gui_Sprites\\humor2.png"
 	style_h = 40
 	style_w = 130
-
 	motion_b = "gui_Sprites\\motion_bg_blue.png"
 	motion_p = "gui_Sprites\\motion_bg_pink.png"
 		motion_bg_w = 256
@@ -121,7 +118,7 @@ local function cleanstate()
 	savcount = 30	--amount of savestate frames to keep
 	client.displaymessages(false)
 	emu.minimizeframeskip(true)
-	client.frameskip(9)
+	client.frameskip(0)
 	HideResim = 1
 	TargetFrame = 167.427063 --166.67
 	TargetSpeed = 100
@@ -276,33 +273,15 @@ while PLAYERNUM < 1 do
 	emu.frameadvance()
 end
 
---forms.destroyall()
-
-
---define controller ports and offsets for individual players
-	
---	PORTNUM = PLAYERNUM - 1
---	InputBufferLocal = InputData + PLAYERNUM
---	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
---	PlayerHPLocal = BattleData_A + BDA_HP + (BDA_s * PORTNUM)
---	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
---	
---	--this math only works for 1v1s
---	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
---	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
---	PlayerHPRemote = BattleData_A + BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
---	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
---	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
---	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 
 
 local function receivepackets()
 	-- Loop for Received data
 	--t = {}
-	ctrl = {}
-	data = nil
-	err = nil
-	part = nil
+	--ctrl = {}
+	--data = nil
+	--err = nil
+	--part = nil
 	while true do
 		data,err,part = opponent:receive()
 		-- Data will not be nil if a full data packet has been received.
@@ -310,7 +289,7 @@ local function receivepackets()
 		-- We're checking specifically for full packets, dropped or partial packets aren't good enough.
 		if data ~= nil then
 
---[[
+	--[[
 			--messy debug check
 			if not(thisco) then
 				thisco = memory.read_u16_le(0x0203b380)
@@ -326,7 +305,7 @@ local function receivepackets()
 				if not(cyclecount) then
 					cyclecount = 0
 				end
-			--	gui.drawText(30+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data)
+			--	gui.drawText(30+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data,nil,"black")
 				cyclecount = cyclecount + 1
 				if cyclecount > 11 then
 					x_shift = x_shift + 1
@@ -335,7 +314,7 @@ local function receivepackets()
 			--print(this .."  "..data)
 			end
 			--end messy debug check
-]]
+	]]
 
 			-- A "Get" is received when you send an ack to your opponent(s) and they acknowledge that they received it.
 			-- Once this has been received, clear out the correct slot in the local frame table so that we can free up some space.
@@ -520,11 +499,11 @@ local function Init_Battle_Vis()
 
 	local localsent = TimeStatsWereSent
 	local remotesent = s[2] 
-	local receivedremote = math.floor((socket.gettime()*10000) % 0x10000)
+	local receivedremote = math.floor((socket.gettime()*10000) % 0x100000)
 	
 	--math.floor( / 167.427063)
 
-	--debug(localsent .." - ".. remotesent .." .. ".. receivedremote)
+	debug(localsent .." - ".. remotesent .." .. ".. receivedremote)
 
 	
 	if localsent < remotesent then
@@ -534,9 +513,9 @@ local function Init_Battle_Vis()
 		--if you sent it second
 		sleeptimeoffset = (receivedremote - remotesent) / 10
 	end
-	sleeptime = 2000 - sleeptimeoffset --measured in milliseconds
+	sleeptime = 5000 - sleeptimeoffset --measured in milliseconds
 
-	vis_looptimes = 180
+	vis_looptimes = 120
 	vis_looptimes_max = vis_looptimes
 	vis_vs_zoom = {}
 	local function def_vs_frame_zooms(...)
@@ -668,27 +647,25 @@ local function FrameStart()
 	--compensate for local frame stuttering by temporarily speeding up
 	--make sure this also can compensate for the time spent on rollbacks
 
-	sockettime = math.floor((socket.gettime()*10000) % 0x10000)
+	sockettime = math.floor((socket.gettime()*10000) % 0x100000)
 	if not(prevsockettime) then
 		 prevsockettime = sockettime
 		return 
 	end
 
-	timepast = math.floor((sockettime - prevsockettime) % 0x10000)
+	timepast = math.floor((sockettime - prevsockettime) % 0x100000)
 	timerift = timerift + timepast - TargetFrame
 	prevsockettime = sockettime
-	if timerift < 0 then
-		gui.drawText(1, 14, math.floor(timerift))
-	else
-		gui.drawText(1, 14, " ".. math.floor(timerift))
-	end
+	local placeholderspot = " "
+	if timerift < 0 then placeholderspot = "" end
+	gui.drawText(1, 14, placeholderspot.. math.floor(timerift),nil,"black")
+
 	if timerift > TargetFrame then 
 		--speed up if the timerift has surpassed 1 frame worth of ms
 		if framethrottle == true then 
 			emu.limitframerate(false) 
 			framethrottle = false
 		end
-		gui.drawText(1, 23, "FAST")
 	elseif timerift < -50 then
 		TimeToSlowDown = true
 		client.speedmode(75)
@@ -760,7 +737,7 @@ local function sendhand()
 		debug("sent hand")
 		
 		-- Get Frame Time.
-		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 		
 		-- Write new entry to the frame table.
 		frametable[tostring(frametime)] = {{},{},{}}
@@ -821,7 +798,7 @@ local function SendStats()
 	if opponent == nil then debug("nopponent") return end
 
 	-- Get Frame Timer.
-	local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+	local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 	
 	TimeStatsWereSent = frametime --we're saving this for later
 	
@@ -866,7 +843,7 @@ local function SendStats()
 end
 event.onmemoryexecute(SendStats,0x0800761A,"SendStats")
 
-local function delaybattlestart()
+local function WaitForPvP()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		if thisispvp == 0 then
 			waitingforpvp = 1
@@ -918,7 +895,7 @@ local function delaybattlestart()
 		thisispvp = 0
     end
 end
-event.onmemoryexecute(delaybattlestart,0x080048CC,"DelayBattle")
+event.onmemoryexecute(WaitForPvP,0x080048CC,"WaitForPvP")
 
 local function SetPlayerPorts()
 	if thisispvp == 0 then return end
@@ -952,37 +929,46 @@ local function ApplyRemoteInputs()
 
 	--avoid iterating the remote timestamp if it would make it greater than the local timestamp
 	local tsdif = newtimestamp - localtimestamp
-	if tsdif > 0 then else
+	if tsdif > 0 and (newtimestamp + BufferVal) < 0xFF and localtimestamp > BufferVal then else
 		memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
 	end
 
 
 	if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
 
+		--debug: find out how many times this loops, to see if it's writing the full input backlog
+		local NumberTimesLooped = 0
+
 		while #c > 0 do --continue writing inputs until the backlog of received inputs is empty
 
+			NumberTimesLooped = NumberTimesLooped + 1
 			local pointer = 0
-			local match = false
+			local tsmatch = false
 			local stacksize = memory.read_u8(InputStackSize)
 			local currentpacket = 1
 
 			while c[currentpacket][2] == nil do
 				currentpacket = currentpacket + 1
-				if currentpacket >= #c then
+				if currentpacket > #c then
 					return
 				end
 			end
 
-			while match == false do
+			while tsmatch == false do
 				if (c[currentpacket][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
-					match = true
+					tsmatch = true
 				else
 					pointer = pointer + 1
 					if pointer > stacksize then pointer = 0 break end
 				end
 			end
 
-			if match == true then
+			gui.drawText(-8, 82, bizstring.hex(0x800000000 + c[currentpacket][2]),nil,"black")
+			gui.drawText(-1, 94, bizstring.hex(c[currentpacket][2] % 256),nil,"black")
+
+			
+
+			if tsmatch == true then
 				--rollback logic
 				--returns true if it's about to write to an input slot that was already executed
 				local iStatus = bit.check(memory.read_u8(InputStackRemote + 0x1 + pointer*0x10),1)
@@ -990,7 +976,7 @@ local function ApplyRemoteInputs()
 				--check whether the guessed input was correct
 					--record the guessed input before overwriting
 					local iGuess = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
-					--write the received input (halfword)
+					--write the received input
 					memory.write_u32_le(InputStackRemote + pointer*0x10, c[currentpacket][2])
 					--load the received input (halfword) into a variable for comparison
 					iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
@@ -1003,11 +989,11 @@ local function ApplyRemoteInputs()
 							memory.write_u8(rollbackflag, rbAmount)
 						end
 					end
-					table.remove(c,1)
+					table.remove(c,currentpacket)
 				else
 				--runs when the input was received on time
 					memory.write_u32_le(InputStackRemote + pointer*0x10, c[currentpacket][2])
-					table.remove(c,1)
+					table.remove(c,currentpacket)
 				end
 			else
 				local i = 0
@@ -1019,8 +1005,9 @@ local function ApplyRemoteInputs()
 					memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
 					table.remove(CycleInputStack,#CycleInputStack)
 				end
+				gui.drawText(18, 94, "append",nil,"black")
 				memory.write_u32_le(InputStackRemote, c[currentpacket][2])
-				table.remove(c,1)		
+				table.remove(c,currentpacket)
 			end
 		end
 			
@@ -1039,6 +1026,8 @@ local function ApplyRemoteInputs()
 				end
 			end
 		end
+		gui.drawText(-1, 108, NumberTimesLooped,nil,"black")
+		gui.drawText(-1, 120, #c,nil,"black")
 	else
 		--if no input was received this frame
 	end
@@ -1055,8 +1044,12 @@ local function closebattle()
 		memorysavestate.removestate(sav[#sav])
 		table.remove(sav,#sav)
 	end
-	while #frametable > 0 do
-		table.remove(frametable,#frametable)
+
+	for k,v in pairs(frametable) do
+		frametable[k][1] = nil
+		frametable[k][2] = nil
+		frametable[k][3] = nil
+		frametable[k] = nil
 	end
 
 	opponent:send("disconnect")
@@ -1101,7 +1094,7 @@ local function Init_p2p_Connection()
 	--	local previousSound = client.GetSoundOn() -- query what settings the user had for sound...
 		local err
 		if connectedclient == nil then
---			client.SetSoundOn(false) -- the stutter is horrible
+	--		client.SetSoundOn(false) -- the stutter is horrible
 			
 			if not(connection_attempt_delay) then connection_attempt_delay = 1 end
 			if connection_attempt_delay < 35 then
@@ -1153,7 +1146,7 @@ local function Init_p2p_Connection()
 		-- Finalize Connection
 		connected = true
 	end
---coroutine.yield()
+ --coroutine.yield()
 end
 
 coco = coroutine.create(function() Init_p2p_Connection() end)
@@ -1164,25 +1157,29 @@ coco = coroutine.create(function() Init_p2p_Connection() end)
 while true do
 	
 
+	--Reusable code for initializing the socket connection between players
 	if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
-
 		if coroutine.status(coco) == "dead" then
 			coco = coroutine.create(function() Init_p2p_Connection() end)
 		end
 		if coroutine.status(coco) == "suspended" then
 			coroutine.resume(coco)
 		end
-
 	elseif connected == true then
 	--	gui.drawText(220, 1, "p"..PLAYERNUM, "white")
 	end
 
-	if StallingBattle == true then
 
+	--[[
+	Controls the operation of the battle intro animation and syncs battle start times:
+		1) stalls until verifying that the remote player's stats have been received
+		2) runs Init_Battle_Vis() and then loops Battle_Vis() until the animation is completed
+		3) pauses emulation for a variable time with the intention of both players resuming at the exact same time
+	]]
+	if StallingBattle == true then
 		if connected then 
 			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 		end
-
 		if received_stats == true then
 			if vis_looptimes > 0 then
 				vis_looptimes = vis_looptimes - 1
@@ -1202,6 +1199,9 @@ while true do
 	end
 
 
+	--[[Once the local operation has written over the relevant addresses with the incorrect data, it will flag that 
+		it's now safe to write the remote player's data to those addresses. Once it's safe to write, this code will 
+		run as soon as the remote player's data has been received. ]]
 	if CanWriteRemoteStats == true then
 		if type(s) == "table" and #s == 19 then
 			debug("wrote remote stats")
@@ -1230,7 +1230,7 @@ while true do
 
 
 
-	-- Weird Netcode Stuff
+	-- Main routine for sending data to other players
 	if opponent ~= nil and connected and not(resimulating) then
 		
 		-- Sort and clean Frame Table's earliest frames
@@ -1240,12 +1240,19 @@ while true do
 		    frametableSize = frametableSize + 1
 		end
 		--debugging stuff
-		gui.drawText(1, 34, frametableSize)
-		local debuggingtimestamp = bizstring.hex(memory.read_u16_le(0x0203b380))
-		gui.drawText(1, 46, debuggingtimestamp)
+		gui.drawText(1, 34, frametableSize,nil,"black")
+		local debuggingtimestamp = bizstring.hex(memory.read_u16_be(0x0203b380))
+		gui.drawText(1, 46, debuggingtimestamp,nil,"black")
+
+		gui.drawText(-8, 58, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackLocal + (memory.read_u8(InputBufferLocal)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferLocal)),nil,"black")
+		gui.drawText(-8, 70, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackRemote + (memory.read_u8(InputBufferRemote)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferRemote)),nil,"black")
+
+		--gui.drawText(1, 94, bizstring.hex(),nil,"black")
 		-- e
 
-		while frametableSize >= 120 do
+
+	--for now we'll avoid destroying these since we don't know which ones get destroyed yet
+	--[[	while frametableSize >= 120 do
 			for k,v in pairs(frametable) do
 				frametable[k][1] = nil
 				frametable[k][2] = nil
@@ -1255,11 +1262,11 @@ while true do
 			--	debug("Removing #"..k.." from frametable.")
 				break
 			end
-		end
+		end]]
 
 		
 		-- Get Frame Time
-		local frametime = math.floor((socket.gettime()*10000) % 0x10000)
+		local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 		
 		-- Write new entry to Frame Table
 		frametable[tostring(frametime)] = {{},{},{}}
@@ -1414,7 +1421,7 @@ while true do
 			--count down remaining rollback frames by 1
 			rollbackframes = rollbackframes - 1
 			memory.write_u8(rollbackflag,rollbackframes)
-			gui.drawText(1, 23, "     ".. rollbackframes, "white")
+			gui.drawText(1, 23, "     ".. rollbackframes,nil,"black")
 
 			--if it's the final rollback frame, queue it up to display the next frame
 			if rollbackframes == 0 then
@@ -1448,11 +1455,11 @@ while true do
 end
 
 event.unregisterbyname("FrameStart")
-event.unregisterbyname("CustSync")
-event.unregisterbyname("DelayBattle")
+event.unregisterbyname("SetPlayerPorts")
+event.unregisterbyname("WaitForPvP")
 event.unregisterbyname("SendStats")
 event.unregisterbyname("SendHand")
+event.unregisterbyname("CustSync")
 event.unregisterbyname("ApplyRemoteInputs")
 event.unregisterbyname("CloseBattle")
-event.unregisterbyname("SetPlayerPorts")
 return
