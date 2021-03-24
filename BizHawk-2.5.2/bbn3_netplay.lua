@@ -124,7 +124,7 @@ local function cleanstate()
 	TargetSpeed = 100
 	client.speedmode(TargetSpeed)
 	
-	--set empty variables at script start
+	--set variables at script start
 	rollbackframes = 0
 	resimulating = nil
 	emu.limitframerate(true)
@@ -142,6 +142,8 @@ local function cleanstate()
 	c = {}
 	ctrl = {}
 	l = {}
+	h = {}
+	wt = {}
 	s = {}
 	data = nil
 	err = nil
@@ -305,7 +307,7 @@ local function receivepackets()
 				if not(cyclecount) then
 					cyclecount = 0
 				end
-			--	gui.drawText(30+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data,nil,"black")
+				gui.drawText(80+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data,nil,"black")
 				cyclecount = cyclecount + 1
 				if cyclecount > 11 then
 					x_shift = x_shift + 1
@@ -350,25 +352,31 @@ local function receivepackets()
 				-- Save the buffered data to the Player Control Information.
 				-- The Control Information includes things like gamestate and player inputs.
 				-- Clears out the buffered control table afterward.
-				if data == "control" and #ctrl == 5 then
+				if data == "c" and #ctrl == 3 then --"controls"
 					c[#c+1] = ctrl
 					ctrl = {}
-			--		gui.drawText(80, 120, "ctrl")
+				end
+				if data == "w" and #t == 2 then --"wait for pvp"
+					wt = t 
+					t = {}
 				end
 				-- Save the buffered data to the Player Stats table.
 				-- The Stats include things like the Player's NCP Setup, their HP, etc.
 				-- Clears out the buffered data table afterward.
-				if data == "stats" and #t == 19 then
+				if data == "s" and #t == 19 then --"stats"
 					s = t
 					t = {}
 				end
 				-- Save the buffered data to the Player's "Load Round" table.
 				-- This table loads things like Custom Screen state, RNG values, The Pre-round Timer, Input Delay, etc.
 				-- Again, clears out the buffered data table afterward.
-				if data == "loadround" and #t == 9 then
+				if data == "cs" and #t == 4 then --"custom screen"
 					l = t
 					t = {}
-			--		gui.drawText(80, 100, "load")
+				end
+				if data == "h" and #t == 4 then
+					h = t
+					t = {}
 				end
 				
 				-- This for loop grabs numerical values from the received packet.
@@ -431,26 +439,6 @@ end
 
 
 local function Init_Battle_Vis()
-
-	--[[
-	local style = {}
-	local function def_styles(...)
-		for pos, val in pairs({...}) do
-			style[pos] = val
-		end
-	end
-	def_styles("Normal","Guts","Custom","Team","Shield","Ground","Shadow","Bug")
-	]]
-
-	--[[
-	local elem = {}
-	local function def_elems(...)
-		for pos, val in pairs({...}) do
-			elem[pos] = val
-		end
-	end
-	def_elems("Null","Elec","Heat","Aqua","Wood")
-	]]
 
 
 	local style = 
@@ -685,42 +673,107 @@ local function custsynchro()
 
 	reg3 = emu.getregister("R3")
 
-	-- Sync Player HP and Input Buffer
-	if type(l) == "table" and #l > 0 then
-		memory.write_u8(InputBufferRemote, l[3])
-		if PLAYERNUM == 1 and #l >= 6 then
-		--	memory.write_u16_le(PlayerHPRemote, l[6])
-	--	elseif PLAYERNUM == 2 and #l >= 6 then
-		--	memory.write_u16_le(PlayerHPLocal, l[6])
-		--	memory.write_u32_le(0x02009730, l[7])
-		--	memory.write_u32_le(0x02009800, l[8])
-		end
-	end
-		
-	-- Rewrite Client's Timestamp
-	if PLAYERNUM > 4 then
-		if type(c) == "table" and #c > 0 then
-			if type(c[1]) == "table" and #c[1] > 0 then
-				if c[1][3] == 0x4 or memory.read_u8(SceneIndicator) == 0x4 then
-					memory.write_u16_le(0x0203b380, l[9])
-					debug("wrote the thing")
-				end
-			else
-				debug("nada")
-			end
-		end
-	end
-		
 	if reg3 == 0x2 then
-		waitingforround = 1
-		if type(l) == "table" and #l > 0 then
-			if l[4] <= 0 and waitingforround and l[5] then
-				waitingforround = 0
-				return
-			else
-				emu.setregister("R3",0)
+		if CanBeginTurn then 
+			CanBeginTurn = nil
+			return
+		end
+		if waitingforround == 0 then
+			waitingforround = 1
+			local frametime = math.floor((socket.gettime()*10000) % 0x100000)
+			frametable[tostring(frametime)] = {{},{},{}}
+			--data to send regardless of whether host or client
+			frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
+			frametable[tostring(frametime)][3][2] = tostring(waitingforround)
+			frametable[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
+			frametable[tostring(frametime)][3][4] = tostring(memory.read_u16_le(PlayerHPLocal))
+			--send
+			opponent:send("ack,"..tostring(frametime)) -- Ack Time
+			opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
+			opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+			opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
+			opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
+			opponent:send("cs") --"custom screen"
+			print("part 1")
+		end
+
+		if #l == 4 then
+			print("part 2")
+			--apply the correct data for the remote player, just in case
+				--PLAYERNUM will let us know which player this data is for. For now we're allowed to assume.
+			--remote input buffer
+			memory.write_u8(InputBufferRemote, l[3])
+			--remote HP
+			memory.write_u16_le(PlayerHPRemote, l[4])
+			--now we can proceed with the rest of the code
+			WroteCSPlayerState = true
+		end
+
+		--run this when we know that everyone has closed their cust
+		--(this only runs once)
+		if not(AllCustomizingFinished) and WroteCSPlayerState and l[2] == 1 then 
+			print("part 3a")
+			AllCustomizingFinished = true
+			--clean the table
+			l = {}
+			--the host dictates parts of the gamestate in this conditional
+			if PLAYERNUM == 1 then
+				print("part 3b")
+				local waittime = 60		--in frames
+				local frametime = math.floor((socket.gettime()*10000) % 0x100000)
+				frametable[tostring(frametime)] = {{},{},{}}
+				--data for only the host to send
+				frametable[tostring(frametime)][3][1] = tostring(frametime)
+				frametable[tostring(frametime)][3][2] = tostring(waittime)
+				frametable[tostring(frametime)][3][3] = tostring(memory.read_u32_le(0x02009800)) -- Battle RNG
+				frametable[tostring(frametime)][3][4] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
+				--send
+				opponent:send("ack,"..tostring(frametime)) -- Ack Time
+				opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
+				opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+				opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
+				opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
+				opponent:send("h")
+				TurnCountDown = waittime
 			end
-		else
+		end
+
+		if AllCustomizingFinished and not(TurnCountDown) and #h == 4 then
+			print("part 4")
+			--accommodate latency between the time packet was sent and received
+			local currentFrameTime = math.floor((socket.gettime()*10000) % 0x100000)
+			local FrameTimeDif = math.floor((currentFrameTime - h[1]) % 0x100000)
+			local WholeFrames = math.floor(FrameTimeDif/TargetFrame)
+			local remainder = FrameTimeDif - (WholeFrames*TargetFrame)
+
+			local adj_CntDn = h[2] - WholeFrames
+			local adj_TS = math.floor((h[4] + WholeFrames)%0x10000)
+
+			timerift = timerift + remainder
+			--set the amount of frames to wait before beginning turn
+			TurnCountDown = adj_CntDn
+			--overwrite Battle RNG value
+			memory.write_u16_le(0x02009800, h[3])
+			--overwrite Battle Timestamp
+			memory.write_u16_le(0x0203b380, adj_TS)
+			--clean the table
+			h = {}
+		end
+
+		if TurnCountDown then
+			TurnCountDown = TurnCountDown - 1
+			if TurnCountDown == 0 then
+				CanBeginTurn = true
+			end
+		end
+
+		if CanBeginTurn then
+			print("can begin turn")
+			waitingforround = 0
+			AllCustomizingFinished = nil
+			WroteCSPlayerState = nil
+			TurnCountDown = nil
+		else 
 			emu.setregister("R3",0)
 		end
 	end
@@ -728,7 +781,7 @@ end
 event.onmemoryexecute(custsynchro,0x08008B96,"CustSync")
 
 -- Sync Player Hands
-local function sendhand()
+local function SendHand()
 	if thisispvp == 0 or opponent == nil then return end
 
 	--when this runs, it means you can safely send your chip hand and write over the remote player's hand
@@ -761,19 +814,8 @@ local function sendhand()
 		for i=0,0x10 do
 			opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 		end
-		opponent:send("stats") -- This tells the opponent what the packets are for.
+		opponent:send("s") -- This tells the opponent that the packets are for stats.
 			
-		--[[
-		if acked and type(frametable[acked]) == "table" then
-			opponent:send("1,1,"..frametable[acked][2][1])
-			opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
-			for i=0,0x10 do
-				opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
-			end
-			opponent:send("stats")
-			acked = nil
-		end
-		]]
 		CanWriteRemoteChips = true
 		return
 	end
@@ -786,8 +828,7 @@ local function sendhand()
 
 	end
 end
-event.onmemoryexecute(sendhand,0x08008B56,"SendHand")
-
+event.onmemoryexecute(SendHand,0x08008B56,"SendHand")
 
 -- Sync Data on Match Load
 local function SendStats()
@@ -796,6 +837,7 @@ local function SendStats()
 		return
 	end
 	if opponent == nil then debug("nopponent") return end
+	debug("entering SendStats()")
 
 	-- Get Frame Timer.
 	local frametime = math.floor((socket.gettime()*10000) % 0x100000)
@@ -823,19 +865,8 @@ local function SendStats()
 	for i=0,0x10 do
 		opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
 	end
-	opponent:send("stats") -- This tells the opponent what the packets are for.
-		
-	--[[
-	if acked ~= nil and type(frametable[acked]) == "table" then
-		opponent:send("1,1,"..frametable[acked][2][1])
-		opponent:send("1,2,"..frametable[acked][2][2]) -- Socket Time
-		for i=0,0x10 do
-			opponent:send("1,"..tostring(i+3)..","..frametable[acked][2][i+3]) -- Player Stats
-		end
-		opponent:send("stats")
-		acked = nil
-	end
-	]]
+	opponent:send("s") -- This tells the opponent that the packets are for stats.
+	
 	debug("sending stats")
 	StallingBattle = true
 	received_stats = false
@@ -855,10 +886,20 @@ local function WaitForPvP()
 		prevsockettime = nil
 		timerift = 0
 
-		if #c == 0 then
+		if opponent ~= nil and connected then
+			local frametime = math.floor((socket.gettime()*10000) % 0x100000)
+			frametable[tostring(frametime)] = {{},{},{}}
+			frametable[tostring(frametime)][3][1] = tostring(BufferVal)
+			frametable[tostring(frametime)][3][2] = tostring(waitingforpvp)
+			--send
+			opponent:send("ack,"..tostring(frametime)) -- Ack Time
+			opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
+			opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+			opponent:send("w") --"wait for pvp"
+		end
+
+		if #wt == 0 then
 			memory.writebyte(SceneIndicator,0x4)
-		--	gui.drawText(20, y_center - 20, "search routine", "white", nil, nil, nil, nil,"middle")
-		--	gui.drawText(20, y_center + 0, "find: [ Netbattler ]", "white", nil, nil, nil, nil,"middle")
 			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
 			gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
 			dur_signal, cnt_signal = gui_animate(124 - 12, ypos_bigpet +25 +yoffset_bigpet, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
@@ -871,25 +912,16 @@ local function WaitForPvP()
 		else
 			if waitingforpvp == 1 then
 				waitingforpvp = 0
-				if type(l) == "table" and #l > 0 then
-					if PLAYERNUM == 2 then
-					--	memory.write_u32_le(0x02009730, l[7])
-					--	memory.write_u32_le(0x02009800, l[8])
-					end
-				end
 			end
-			if waitingforpvp == 0 and c[1][4] == 0 and delaybattletimer > 0 then
+			if delaybattletimer > 0 then
+				memory.writebyte(SceneIndicator,0x4)
+			end
+			if waitingforpvp == 0 and wt[2] == 0 then
 				delaybattletimer = delaybattletimer - 1
-				memory.writebyte(SceneIndicator,0x4)
-			elseif delaybattletimer > 0 then
-				memory.writebyte(SceneIndicator,0x4)
-			end
-			if #c > 1 then
-				table.remove(c,1)
 			end
 			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
 			gui.drawImage(smallpet_bright, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
-			gui.drawText(1, 120, c[1][4], "white")
+			gui.drawText(1, 120, wt[2], "white")
 		end
 	else
 		thisispvp = 0
@@ -929,12 +961,13 @@ local function ApplyRemoteInputs()
 
 	--avoid iterating the remote timestamp if it would make it greater than the local timestamp
 	local tsdif = newtimestamp - localtimestamp
-	if tsdif > 0 and (newtimestamp + BufferVal) < 0xFF and localtimestamp > BufferVal then else
+	if tsdif > 0 and (newtimestamp + BufferVal) < 0xFF and localtimestamp > BufferVal then 
+	else
 		memory.write_u8(InputStackRemote, newtimestamp) --update timestamp on remote stack for this latest frame
 	end
 
 
-	if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 5 then
+	if type(c) == "table" and #c > 0 and type(c[1]) == "table" and #c[1] == 3 then
 
 		--debug: find out how many times this loops, to see if it's writing the full input backlog
 		local NumberTimesLooped = 0
@@ -946,13 +979,17 @@ local function ApplyRemoteInputs()
 			local tsmatch = false
 			local stacksize = memory.read_u8(InputStackSize)
 			local currentpacket = 1
+			local nogoodpackets = nil
 
 			while c[currentpacket][2] == nil do
 				currentpacket = currentpacket + 1
 				if currentpacket > #c then
-					return
+					nogoodpackets = true
+					break
 				end
 			end
+			currentpacketprinter = currentpacket
+			if nogoodpackets then break end
 
 			while tsmatch == false do
 				if (c[currentpacket][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
@@ -1011,25 +1048,25 @@ local function ApplyRemoteInputs()
 			end
 		end
 			
-		local pointer = 0
-		local stacksize = memory.read_u8(InputStackSize)
-
-		while true do
-			if memory.read_u8(InputStackRemote + 0x1 + pointer*0x10) == 0 then
-				lastinput = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
-				break
-			else
-				pointer = pointer + 1
-				if pointer > stacksize then 
-					lastinput = 0
-					break 
-				end
-			end
-		end
 		gui.drawText(-1, 108, NumberTimesLooped,nil,"black")
-		gui.drawText(-1, 120, #c,nil,"black")
+		gui.drawText(-1, 120, currentpacketprinter,nil,"black")
 	else
 		--if no input was received this frame
+	end
+
+	local pointer = 0
+	local stacksize = memory.read_u8(InputStackSize)
+	while true do
+		if memory.read_u8(InputStackRemote + 0x1 + pointer*0x10) == 0 then
+			lastinput = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
+			break
+		else
+			pointer = pointer + 1
+			if pointer > stacksize then 
+				lastinput = 0
+				break 
+			end
+		end
 	end
 
 	--[NEW EXPERIMENTAL CONDITIONAL] exit battle with the game's 'comm error' feature if players disconnect early
@@ -1186,6 +1223,7 @@ while true do
 				scene_anim = Battle_Vis()
 			else
 				StallingBattle = false
+				c = {}
 				memory.write_u8(0x0200F31F, 0x0)
 				client.exactsleep(sleeptime)
 				prevsockettime = nil
@@ -1194,6 +1232,8 @@ while true do
 			if type(s) == "table" and #s == 19 then
 				Init_Battle_Vis()
 				received_stats = true
+				memory.write_u8(InputBufferRemote, wt[1])
+				wt = {}
 			end
 		end
 	end
@@ -1285,33 +1325,8 @@ while true do
 		-- Writing the Player Control Information subtable values.
 		frametable[tostring(frametime)][1][1] = tostring(PLAYERNUM)
 		frametable[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
-		frametable[tostring(frametime)][1][3] = tostring(memory.read_u8(SceneIndicator))
-		frametable[tostring(frametime)][1][4] = tostring(waitingforpvp)
-		frametable[tostring(frametime)][1][5] = tostring(frametime)
+		frametable[tostring(frametime)][1][3] = tostring(frametime)
 		
-		-- Start writing the "Load Round" subtable values.
-		frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
-		frametable[tostring(frametime)][3][2] = tostring(memory.read_u8(0x2036830)) -- Custom Screen Bar Value
-		frametable[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
-		
-		-- This if statement block is used to count down the waitingforround timer.
-		-- It also syncs the values between both players, or at least attempts to.
-		if type(l) == "table" and type(l[4]) == "number" and waitingforround == 1 and l[5] == 1 then
-			l[4] = l[4]-1
-			frametable[tostring(frametime)][3][4] = tostring(l[4])
-		elseif type(l) == "table" and type(l[4]) == "number" and (waitingforround == 1 or l[5] == 1) then
-			frametable[tostring(frametime)][3][4] = tostring(l[4])
-		else
-			frametable[tostring(frametime)][3][4] = tostring(0x3C)
-		end
-		
-		-- Finish writing the "Load Round" subtable values.
-		frametable[tostring(frametime)][3][5] = tostring(waitingforround)
-		frametable[tostring(frametime)][3][6] = tostring(memory.read_u16_le(PlayerHPLocal))
-		frametable[tostring(frametime)][3][7] = tostring(memory.read_u32_le(0x02009730)) -- RNG 2
-		frametable[tostring(frametime)][3][8] = tostring(memory.read_u32_le(0x02009800)) -- RNG 1
-		frametable[tostring(frametime)][3][9] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
-	
 		-- Send Ack to Opponent
 		opponent:send("ack,"..tostring(frametime)) -- Ack Time
 		-- Send Frame Table to Opponent
@@ -1320,51 +1335,11 @@ while true do
 		opponent:send("0,1,"..frametable[tostring(frametime)][1][1])
 		opponent:send("0,2,"..frametable[tostring(frametime)][1][2])
 		opponent:send("0,3,"..frametable[tostring(frametime)][1][3])
-		opponent:send("0,4,"..frametable[tostring(frametime)][1][4])
-		opponent:send("0,5,"..frametable[tostring(frametime)][1][5])
-		opponent:send("control") -- This tells the opponent what the packets are for.
-		
-		-- "Load Round" table
-		opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
-		opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
-		opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
-		opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
-		opponent:send("2,5,"..frametable[tostring(frametime)][3][5])
-		opponent:send("2,6,"..frametable[tostring(frametime)][3][6])
-		opponent:send("2,7,"..frametable[tostring(frametime)][3][7])
-		opponent:send("2,8,"..frametable[tostring(frametime)][3][8])
-		opponent:send("2,9,"..frametable[tostring(frametime)][3][9])
-		opponent:send("loadround") -- This tells the opponent what the packets are for.
+		opponent:send("c") -- This tells the opponent what the packets are for (it's controls).
 		
 		-- End the data stream
-		opponent:send("end")
+		--opponent:send("end")
 		
-		--[[
-		opponent:send("0,1,"..tostring(PLAYERNUM)) -- Player Number
-		opponent:send("0,2,"..tostring(memory.read_u32_le(InputStackLocal))) -- Player Control Inputs
-		opponent:send("0,3,"..tostring(memory.read_u8(SceneIndicator))) -- Battle Check
-		opponent:send("0,4,"..tostring(waitingforpvp)) -- Waiting for PVP Value
-		opponent:send("0,5,"..tostring(math.floor((socket.gettime()*10000) % 0x10000))) -- Socket Time
-		opponent:send("control")
-		opponent:send("2,1,"..tostring(PLAYERNUM))
-		opponent:send("2,2,"..tostring(memory.read_u8(0x2036830))) -- Custom Screen Value
-		opponent:send("2,3,"..tostring(memory.read_u8(InputBufferLocal))) -- Player Input Delay
-		if type(l) == "table" and type(l[4]) == "number" and waitingforround == 1 and l[5] == 1 then
-			l[4] = l[4]-1
-			opponent:send("2,4,"..tostring(l[4]))
-		elseif type(l) == "table" and type(l[4]) == "number" and (waitingforround == 1 or l[5] == 1) then
-			opponent:send("2,4,"..tostring(l[4]))
-		else
-			opponent:send("2,4,"..tostring(0x3C))
-		end
-		opponent:send("2,5,"..tostring(waitingforround))
-		opponent:send("2,6,"..tostring(memory.read_u16_le(PlayerHPLocal))) -- Player HP
-		opponent:send("2,7,"..tostring(memory.read_u32_le(0x02009730))) -- RNG #1
-		opponent:send("2,8,"..tostring(memory.read_u32_le(0x02009800))) -- RNG #2
-		opponent:send("2,9,"..tostring(memory.read_u16_le(0x0203b380))) -- Battle Timestamp Value
-		opponent:send("loadround")
-		opponent:send("end")
-		--]]
 		
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
