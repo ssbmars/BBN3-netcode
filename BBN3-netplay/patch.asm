@@ -779,6 +779,7 @@ DelayBuffer:
 
 ;	mov		r0,1h	//port number pointer, goes 0-3
 ;	strb	r0,[r3]
+	//everything that's commented out here is handled by the netplay script
 
 
 @@vanillafunction:
@@ -836,12 +837,10 @@ DelayBuffer:
 	//temporary version, just for 2 player mode
 	ldr		r2,[r0]		//cycle p1's stack
 	str		r2,[r1]
-	add		r0,4h
-	add		r1,4h
-	ldr		r2,[r0]		//cycle p2's stack
-	str		r2,[r1]
-	sub		r0,14h
-	sub		r1,14h
+	ldr		r2,[r0,4h]		//cycle p2's stack
+	str		r2,[r1,4h]
+	sub		r0,10h
+	sub		r1,10h
 	//end of temp version
 
 		//ldr		r2,[r0]
@@ -869,11 +868,20 @@ DelayBuffer:
 	mov		r0,20h
 	add		r0,r5
 	ldrb	r0,[r0]
+		//reset stack pointer to leftmost, then iterate forward
+	push 	r1
+	mov		r1,10h
+	add		r1,r3
 	strb	r0,[r1]
+	strb	r0,[r1,4h]
+	strb	r0,[r1,8h]
+	strb	r0,[r1,0Ch]
+	pop		r1
+
 	//bypass input lag if on the custom screen
 	mov		r4,r2
 	lsr		r4,1Ch
-	cmp		r4,5h
+	cmp		r4,5h		//note: for this part it's fine to only check for 5h
 	bne		@@localinput
 	lsl		r1,r7,4h
 	add		r1,60h
