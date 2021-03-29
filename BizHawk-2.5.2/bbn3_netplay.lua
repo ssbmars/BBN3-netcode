@@ -112,7 +112,7 @@ local function cleanstate()
 	--define variables that we might adjust sometimes
 	
 	BufferVal = 7		--input lag value in frames
-	debugmessages = 0	--toggle whether to print debug messages
+	debugmessages = 1	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
 	delaybattletimer = 20
@@ -139,6 +139,9 @@ local function cleanstate()
 	connected = nil
 	connectedclient = nil
 	frametable = {}
+	frametabletable = {}
+	remoteframetable = {}
+	remoteframetabletable = {}
 	t = {}
 	c = {}
 	ctrl = {}
@@ -292,48 +295,54 @@ local function receivepackets()
 		-- We're checking specifically for full packets, dropped or partial packets aren't good enough.
 		if data ~= nil then
 
-	--[[
-			--messy debug check
+	--	--messy debug check
+			--this prints (to the screen) the raw packet data as it's coming in
 			if not(thisco) then
 				thisco = memory.read_u16_le(0x0203b380)
 				cyclecount = 0
-				x_shift = 0
-			end
+				x_shift = 0 end
 			if memory.read_u16_le(0x0203b380) ~= thisco then
 				thisco = memory.read_u16_le(0x0203b380)
 				cyclecount = 0
-				x_shift = 0
-			end
+				x_shift = 0 end
 			if thisco > 100 then
-				if not(cyclecount) then
-					cyclecount = 0
-				end
+				if not(cyclecount) then cyclecount = 0 end
 				gui.drawText(80+ 90*x_shift, 12*cyclecount, bizstring.hex(thisco) .." "..data,nil,"black")
 				cyclecount = cyclecount + 1
-				if cyclecount > 11 then
+					if cyclecount > 11 then
 					x_shift = x_shift + 1
-					cyclecount = 0
-				end
-			--print(this .."  "..data)
+					cyclecount = 0 end
 			end
 			--end messy debug check
-	]]
+
 
 			-- A "Get" is received when you send an ack to your opponent(s) and they acknowledge that they received it.
 			-- Once this has been received, clear out the correct slot in the local frame table so that we can free up some space.
 			if string.match(data, "get") == "get" then
 				local frame = string.match(data, "(%d+)")
-				frametable[frame][1] = nil
-				frametable[frame][2] = nil
-				frametable[frame][3] = nil
-				frametable[frame] = nil
+				--it will be possible to receive the same "get" packet more than once, so this conditional avoids an error
+				if frametable[frame] ~= nil then
+					frametable[frame][1] = nil
+					frametable[frame][2] = nil
+					frametable[frame][3] = nil
+					frametable[frame] = nil
+				end
 				timedout = 0
 			-- An incoming ack, sent before incoming data.
 			-- Used to make sure each player's frame tables are in-sync.
 			elseif string.match(data, "ack") == "ack" then
 				acked = string.match(data, "(%d+)")
-				opponent:send("get,"..string.match(data, "(%d+)"))
+				opponent:send("get,"..acked)
 				timedout = 0
+				--populate the remote frametable, which keeps track of the packets that have already gone through
+				if remoteframetable[acked] == nil then
+					remoteframetable[acked] = {1}
+					table.insert(remoteframetabletable, 1, acked)
+				else
+					--find some way to make it ignore whatever packets are bundled with this timestamp
+
+				end
+
 			end
 			-- The End of the incoming data buffer.
 			-- Just used to clear some variables and tell the user they're no longer being acked.
@@ -433,13 +442,12 @@ co = coroutine.create(function() receivepackets() end)
 
 
 
+--IMPORTANT: coroutines apparently cannot use these debug functions for displaying data
 local function debug(message)
 	if debugmessages == 1 then
 		print(message)
 	end
 end
-
-
 local function debugdraw(x,y,message)
 	if debugmessages == 1 then
 		gui.drawText(x,y,message,nil,"black")
@@ -532,7 +540,7 @@ local function Battle_Vis()
 			SB_Received = true
 			wt2 = {}
 			if PLAYERNUM == 1 then
-				local waittime = 60		--in frames
+				local waittime = 90		--in frames
 				local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 				frametable[tostring(frametime)] = {{},{},{}}
 				frametable[tostring(frametime)][3][1] = tostring(frametime)
@@ -756,7 +764,7 @@ local function custsynchro()
 			l = {}
 			--the host dictates parts of the gamestate in this conditional
 			if PLAYERNUM == 1 then
-				local waittime = 60		--in frames
+				local waittime = 90		--in frames
 				local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 				frametable[tostring(frametime)] = {{},{},{}}
 				--data for only the host to send
@@ -840,7 +848,6 @@ local function SendHand()
 		frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 		
 		-- This for loop grabs most if not all of the Player's Stats.
-		local i = 0
 		for i=0,0x10 do
 			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4))
 		end
@@ -892,7 +899,6 @@ local function SendStats()
 	frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 	
 	-- This for loop grabs most if not all of the Player's Stats.
-	local i = 0
 	for i=0,0x10 do
 		frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
 	end
@@ -1112,11 +1118,9 @@ local function ApplyRemoteInputs()
 				end
 			else
 				NumberSkipped = NumberSkipped + 1
-				--local i = 0
 				--for i=0,(stacksize - 1) do
 				--	table.insert(CycleInputStack, 1, memory.read_u32_le(InputStackRemote + i*0x10))
 				--end
-				--local i = 0
 				--for i=0,(stacksize - 1) do
 				--	memory.write_u32_le(InputStackRemote + (i+1)*0x10 ,CycleInputStack[#CycleInputStack])
 				--	table.remove(CycleInputStack,#CycleInputStack)
@@ -1325,7 +1329,6 @@ while true do
 	if CanWriteRemoteStats then
 		if type(s) == "table" and #s == 19 then
 			debug("wrote remote stats")
-			local i = 0
 			for i=0x0,0x10 do
 				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Stats
 				table.remove(s,#s-0x10+i)
@@ -1338,7 +1341,6 @@ while true do
 
 	if CanWriteRemoteChips then
 		if type(s) == "table" and #s == 19 then
-			local i = 0
 			for i=0x0,0x10 do
 				memory.write_u32_le(PlayerDataRemote + i*0x4,s[#s-0x10+i]) -- Player Hand
 				table.remove(s,#s-0x10+i)
@@ -1352,42 +1354,14 @@ while true do
 
 	-- Main routine for sending data to other players
 	if opponent ~= nil and connected and not(resimulating) then
-		
-		-- Sort and clean Frame Table's earliest frames
 
-		local frametableSize = 0
-		for k,v in pairs(frametable) do
-		    frametableSize = frametableSize + 1
-		end
-		--debugging stuff
-		debugdraw(1, 34, frametableSize)
-		local debuggingtimestamp = bizstring.hex(memory.read_u16_be(0x0203b380))
-		debugdraw(1, 46, debuggingtimestamp)
-
-		debugdraw(-8, 58, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackLocal + (memory.read_u8(InputBufferLocal)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferLocal)))
-		debugdraw(-8, 70, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackRemote + (memory.read_u8(InputBufferRemote)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferRemote)))
-
-		--debugdraw(1, 94, bizstring.hex())
-		-- e
-
-
-	--for now we'll avoid destroying these since we don't know which ones get destroyed yet
-	--[[	while frametableSize >= 120 do
-			for k,v in pairs(frametable) do
-				frametable[k][1] = nil
-				frametable[k][2] = nil
-				frametable[k][3] = nil
-				frametable[k] = nil
-				frametableSize = frametableSize - 1
-			--	debug("Removing #"..k.." from frametable.")
-				break
-			end
-		end]]
-
-		
 		-- Get Frame Time
 		local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-		
+
+		--this will help track how long ago a frametable entry was created
+		--https://cdn.discordapp.com/attachments/791359988546273330/825892778713546802/the_cooler_frametable.jpg
+		table.insert(frametabletable, 1, tostring(frametime))
+
 		-- Write new entry to Frame Table
 		frametable[tostring(frametime)] = {{},{},{}}
 			-- The Frame Table is a 3-dimensional dictionary that uses frametimes as the main indices.
@@ -1419,8 +1393,66 @@ while true do
 		
 		-- End the data stream
 		--opponent:send("end")
-		
-		
+
+
+		-- Sort and clean Frame Table's earliest frames
+		local frametableSize = 0
+		for k,v in pairs(frametable) do
+		    frametableSize = frametableSize + 1
+		end
+		--debugging stuff
+		debugdraw(1, 34, frametableSize)
+		local debuggingtimestamp = bizstring.hex(memory.read_u16_be(0x0203b380))
+		debugdraw(1, 46, debuggingtimestamp)
+
+		debugdraw(-8, 58, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackLocal + (memory.read_u8(InputBufferLocal)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferLocal)))
+		debugdraw(-8, 70, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackRemote + (memory.read_u8(InputBufferRemote)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferRemote)))
+
+		--debugdraw(1, 94, bizstring.hex())
+		-- e
+
+
+	--this commented out chunk of code is a candidate for deletion now that the frametabletable keeps track of things
+		--for now we'll avoid destroying these since we don't know which ones get destroyed yet
+		--[[	while frametableSize >= 120 do
+				for k,v in pairs(frametable) do
+					frametable[k][1] = nil
+					frametable[k][2] = nil
+					frametable[k][3] = nil
+					frametable[k] = nil
+					frametableSize = frametableSize - 1
+				--	debug("Removing #"..k.." from frametable.")
+					break
+				end
+			end]]
+
+
+		--this might be enough to keep our frametables clean
+		--[[frametabletable has an index in which the largest number denotes the oldest frame, so we can clear 
+			the frametable IDs contained in the oldest entries. It will throw an error if we try to clear a
+			a frametable ID that's already been cleared, so that part is surrounded in a conditional.
+			Also the amount of table entries to keep before being cleared should allow enough time for 
+			multiple attempts at resending the packets, but should not keep entries for long enough that 
+			it's possible for the frametime value to overlap itself. ]]
+		while #frametabletable > 240 do
+			if frametable[frametabletable[#frametabletable]] ~= nil then
+				for i=1,3 do
+					frametable[frametabletable[#frametabletable]][i] = nil
+				end
+				frametable[frametabletable[#frametabletable]] = nil
+			end
+			table.remove(frametabletable,#frametabletable)
+		end
+
+		--same thing as above but for the remote table that keeps track of received packets
+		while #remoteframetabletable > 240 do
+			if remoteframetable[remoteframetabletable[#remoteframetabletable]] ~= nil then
+				remoteframetable[remoteframetabletable[#remoteframetabletable]] = nil
+			end
+			table.remove(remoteframetabletable,#remoteframetabletable)
+		end
+
+
 		-- Receive Data from Opponent
 		if coroutine.status(co) == "suspended" then
 			coroutine.resume(co)
@@ -1454,7 +1486,6 @@ while true do
 				debugdraw(1, 23, "     ".. rollbackframes)
 				--save the corrected input stack
 				local stacksize = memory.read_u8(InputStackSize)
-				local i = 0
 				for i=0,(stacksize*4) do
 					table.insert(FullInputStack, 1, memory.read_u32_le(InputStackLocal + i*0x4))
 				end
@@ -1463,7 +1494,6 @@ while true do
 				memorysavestate.loadcorestate(sav[rollbackframes])
 
 				--write the corrected input stack to RAM
-				local i = 0
 				for i=0,(stacksize*4) do
 					memory.write_u32_le(InputStackLocal + i*0x4,FullInputStack[#FullInputStack])
 					table.remove(FullInputStack,#FullInputStack)
@@ -1479,7 +1509,6 @@ while true do
 				--delete the savestates for the frames that will be resimulated
 				--(they will be recreated upon resimulation)
 				--this is very important
-				local i = 0
 				for i=0, rollbackframes do
 					memorysavestate.removestate(sav[1])
 					table.remove(sav,1)
