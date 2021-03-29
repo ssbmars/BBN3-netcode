@@ -138,10 +138,10 @@ local function cleanstate()
 	tcp = nil
 	connected = nil
 	connectedclient = nil
-	frametable = {}
-	frametabletable = {}
-	remoteframetable = {}
-	remoteframetabletable = {}
+	ft = {}
+	ftt = {}
+	rft = {}
+	rftt = {}
 	t = {}
 	c = {}
 	ctrl = {}
@@ -321,11 +321,11 @@ local function receivepackets()
 			if string.match(data, "get") == "get" then
 				local frame = string.match(data, "(%d+)")
 				--it will be possible to receive the same "get" packet more than once, so this conditional avoids an error
-				if frametable[frame] ~= nil then
-					frametable[frame][1] = nil
-					frametable[frame][2] = nil
-					frametable[frame][3] = nil
-					frametable[frame] = nil
+				if ft[frame] ~= nil then
+					ft[frame][1] = nil
+					ft[frame][2] = nil
+					ft[frame][3] = nil
+					ft[frame] = nil
 				end
 				timedout = 0
 			-- An incoming ack, sent before incoming data.
@@ -335,9 +335,9 @@ local function receivepackets()
 				opponent:send("get,"..acked)
 				timedout = 0
 				--populate the remote frametable, which keeps track of the packets that have already gone through
-				if remoteframetable[acked] == nil then
-					remoteframetable[acked] = {1}
-					table.insert(remoteframetabletable, 1, acked)
+				if rft[acked] == nil then
+					rft[acked] = {1}
+					table.insert(rftt, 1, acked)
 				else
 					--find some way to make it ignore whatever packets are bundled with this timestamp
 
@@ -528,11 +528,11 @@ local function Battle_Vis()
 			SB_sent_packet = true
 
 			local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-			frametable[tostring(frametime)] = {{},{},{}}
-			frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
+			ft[tostring(frametime)] = {{},{},{}}
+			ft[tostring(frametime)][3][1] = tostring(PLAYERNUM)
 			--send
 			opponent:send("ack,"..tostring(frametime)) -- Ack Time
-			opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
+			opponent:send("2,1,"..ft[tostring(frametime)][3][1])
 			opponent:send("w2")
 		end
 
@@ -542,13 +542,13 @@ local function Battle_Vis()
 			if PLAYERNUM == 1 then
 				local waittime = 90		--in frames
 				local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-				frametable[tostring(frametime)] = {{},{},{}}
-				frametable[tostring(frametime)][3][1] = tostring(frametime)
-				frametable[tostring(frametime)][3][2] = tostring(waittime)
+				ft[tostring(frametime)] = {{},{},{}}
+				ft[tostring(frametime)][3][1] = tostring(frametime)
+				ft[tostring(frametime)][3][2] = tostring(waittime)
 				--send
 				opponent:send("ack,"..tostring(frametime)) -- Ack Time
-				opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
-				opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+				opponent:send("2,1,"..ft[tostring(frametime)][3][1])
+				opponent:send("2,2,"..ft[tostring(frametime)][3][2])
 				opponent:send("w") --"wait for pvp"
 				vis_looptimes = vis_looptimes + waittime
 				SB_Received_2 = true
@@ -729,18 +729,18 @@ local function custsynchro()
 		if waitingforround == 0 then
 			waitingforround = 1
 			local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-			frametable[tostring(frametime)] = {{},{},{}}
+			ft[tostring(frametime)] = {{},{},{}}
 			--data to send regardless of whether host or client
-			frametable[tostring(frametime)][3][1] = tostring(PLAYERNUM)
-			frametable[tostring(frametime)][3][2] = tostring(waitingforround)
-			frametable[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
-			frametable[tostring(frametime)][3][4] = tostring(memory.read_u16_le(PlayerHPLocal))
+			ft[tostring(frametime)][3][1] = tostring(PLAYERNUM)
+			ft[tostring(frametime)][3][2] = tostring(waitingforround)
+			ft[tostring(frametime)][3][3] = tostring(memory.read_u8(InputBufferLocal))
+			ft[tostring(frametime)][3][4] = tostring(memory.read_u16_le(PlayerHPLocal))
 			--send
 			opponent:send("ack,"..tostring(frametime)) -- Ack Time
-			opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
-			opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
-			opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
-			opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
+			opponent:send("2,1,"..ft[tostring(frametime)][3][1])
+			opponent:send("2,2,"..ft[tostring(frametime)][3][2])
+			opponent:send("2,3,"..ft[tostring(frametime)][3][3])
+			opponent:send("2,4,"..ft[tostring(frametime)][3][4])
 			opponent:send("cs") --"custom screen"
 		end
 
@@ -766,18 +766,18 @@ local function custsynchro()
 			if PLAYERNUM == 1 then
 				local waittime = 90		--in frames
 				local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-				frametable[tostring(frametime)] = {{},{},{}}
+				ft[tostring(frametime)] = {{},{},{}}
 				--data for only the host to send
-				frametable[tostring(frametime)][3][1] = tostring(frametime)
-				frametable[tostring(frametime)][3][2] = tostring(waittime)
-				frametable[tostring(frametime)][3][3] = tostring(memory.read_u32_le(0x02009800)) -- Battle RNG
-				frametable[tostring(frametime)][3][4] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
+				ft[tostring(frametime)][3][1] = tostring(frametime)
+				ft[tostring(frametime)][3][2] = tostring(waittime)
+				ft[tostring(frametime)][3][3] = tostring(memory.read_u32_le(0x02009800)) -- Battle RNG
+				ft[tostring(frametime)][3][4] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
 				--send
 				opponent:send("ack,"..tostring(frametime)) -- Ack Time
-				opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
-				opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
-				opponent:send("2,3,"..frametable[tostring(frametime)][3][3])
-				opponent:send("2,4,"..frametable[tostring(frametime)][3][4])
+				opponent:send("2,1,"..ft[tostring(frametime)][3][1])
+				opponent:send("2,2,"..ft[tostring(frametime)][3][2])
+				opponent:send("2,3,"..ft[tostring(frametime)][3][3])
+				opponent:send("2,4,"..ft[tostring(frametime)][3][4])
 				opponent:send("h")
 				TurnCountDown = waittime
 			end
@@ -841,25 +841,25 @@ local function SendHand()
 		local frametime = math.floor((socket.gettime()*10000) % 0x100000)
 		
 		-- Write new entry to the frame table.
-		frametable[tostring(frametime)] = {{},{},{}}
+		ft[tostring(frametime)] = {{},{},{}}
 		
 		-- Write Player Stats to the Frame Table.
-		frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
-		frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
+		ft[tostring(frametime)][2][1] = tostring(PLAYERNUM)
+		ft[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 		
 		-- This for loop grabs most if not all of the Player's Stats.
 		for i=0,0x10 do
-			frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4))
+			ft[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4))
 		end
 		
 		-- Send an Ack to the opponent.
 		opponent:send("ack,"..tostring(frametime))
 		
 		-- Send the frame table to the opponent.
-		opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
-		opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
+		opponent:send("1,1,"..ft[tostring(frametime)][2][1])
+		opponent:send("1,2,"..ft[tostring(frametime)][2][2])
 		for i=0,0x10 do
-			opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
+			opponent:send("1,"..tostring(i+3)..","..ft[tostring(frametime)][2][i+3])
 		end
 		opponent:send("s") -- This tells the opponent that the packets are for stats.
 			
@@ -892,24 +892,24 @@ local function SendStats()
 	TimeStatsWereSent = frametime --we're saving this for later
 	
 	-- Write new entry to frame table.
-	frametable[tostring(frametime)] = {{},{},{}}
+	ft[tostring(frametime)] = {{},{},{}}
 	
 	-- Write Player Stats to Frame Table.
-	frametable[tostring(frametime)][2][1] = tostring(PLAYERNUM)
-	frametable[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
+	ft[tostring(frametime)][2][1] = tostring(PLAYERNUM)
+	ft[tostring(frametime)][2][2] = tostring(TimeStatsWereSent)
 	
 	-- This for loop grabs most if not all of the Player's Stats.
 	for i=0,0x10 do
-		frametable[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
+		ft[tostring(frametime)][2][i+3] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
 	end
 	-- Send an ack to the opponent.
 	opponent:send("ack,"..tostring(frametime)) -- Ack Time
 	
 	-- Send the frame table to the opponent.
-	opponent:send("1,1,"..frametable[tostring(frametime)][2][1])
-	opponent:send("1,2,"..frametable[tostring(frametime)][2][2])
+	opponent:send("1,1,"..ft[tostring(frametime)][2][1])
+	opponent:send("1,2,"..ft[tostring(frametime)][2][2])
 	for i=0,0x10 do
-		opponent:send("1,"..tostring(i+3)..","..frametable[tostring(frametime)][2][i+3])
+		opponent:send("1,"..tostring(i+3)..","..ft[tostring(frametime)][2][i+3])
 	end
 	opponent:send("s") -- This tells the opponent that the packets are for stats.
 	
@@ -934,13 +934,13 @@ local function WaitForPvP()
 
 		if opponent ~= nil and connected then
 			local frametime = math.floor((socket.gettime()*10000) % 0x100000)
-			frametable[tostring(frametime)] = {{},{},{}}
-			frametable[tostring(frametime)][3][1] = tostring(BufferVal)
-			frametable[tostring(frametime)][3][2] = tostring(waitingforpvp)
+			ft[tostring(frametime)] = {{},{},{}}
+			ft[tostring(frametime)][3][1] = tostring(BufferVal)
+			ft[tostring(frametime)][3][2] = tostring(waitingforpvp)
 			--send
 			opponent:send("ack,"..tostring(frametime)) -- Ack Time
-			opponent:send("2,1,"..frametable[tostring(frametime)][3][1])
-			opponent:send("2,2,"..frametable[tostring(frametime)][3][2])
+			opponent:send("2,1,"..ft[tostring(frametime)][3][1])
+			opponent:send("2,2,"..ft[tostring(frametime)][3][2])
 			opponent:send("w") --"wait for pvp"
 		end
 
@@ -1166,11 +1166,11 @@ local function closebattle()
 		table.remove(sav,#sav)
 	end
 
-	for k,v in pairs(frametable) do
-		frametable[k][1] = nil
-		frametable[k][2] = nil
-		frametable[k][3] = nil
-		frametable[k] = nil
+	for k,v in pairs(ft) do
+		ft[k][1] = nil
+		ft[k][2] = nil
+		ft[k][3] = nil
+		ft[k] = nil
 	end
 
 	opponent:send("disconnect")
@@ -1360,10 +1360,10 @@ while true do
 
 		--this will help track how long ago a frametable entry was created
 		--https://cdn.discordapp.com/attachments/791359988546273330/825892778713546802/the_cooler_frametable.jpg
-		table.insert(frametabletable, 1, tostring(frametime))
+		table.insert(ftt, 1, tostring(frametime))
 
 		-- Write new entry to Frame Table
-		frametable[tostring(frametime)] = {{},{},{}}
+		ft[tostring(frametime)] = {{},{},{}}
 			-- The Frame Table is a 3-dimensional dictionary that uses frametimes as the main indices.
 			-- For each Frame Time listed in the frame table, there are 3 subtables which each hold further subtables full of packet data.
 			-- Subtable 1 is the Player Control Information subtable, used to sync inputs and gamestate info.
@@ -1377,18 +1377,18 @@ while true do
 		
 
 		-- Writing the Player Control Information subtable values.
-		frametable[tostring(frametime)][1][1] = tostring(PLAYERNUM)
-		frametable[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
-		frametable[tostring(frametime)][1][3] = tostring(frametime)
+		ft[tostring(frametime)][1][1] = tostring(PLAYERNUM)
+		ft[tostring(frametime)][1][2] = tostring(memory.read_u32_le(InputStackLocal))
+		ft[tostring(frametime)][1][3] = tostring(frametime)
 		
 		-- Send Ack to Opponent
 		opponent:send("ack,"..tostring(frametime)) -- Ack Time
 		-- Send Frame Table to Opponent
 		
 		-- Control Information table
-		opponent:send("0,1,"..frametable[tostring(frametime)][1][1])
-		opponent:send("0,2,"..frametable[tostring(frametime)][1][2])
-		opponent:send("0,3,"..frametable[tostring(frametime)][1][3])
+		opponent:send("0,1,"..ft[tostring(frametime)][1][1])
+		opponent:send("0,2,"..ft[tostring(frametime)][1][2])
+		opponent:send("0,3,"..ft[tostring(frametime)][1][3])
 		opponent:send("c") -- This tells the opponent what the packets are for (it's controls).
 		
 		-- End the data stream
@@ -1397,7 +1397,7 @@ while true do
 
 		-- Sort and clean Frame Table's earliest frames
 		local frametableSize = 0
-		for k,v in pairs(frametable) do
+		for k,v in pairs(ft) do
 		    frametableSize = frametableSize + 1
 		end
 		--debugging stuff
@@ -1415,11 +1415,11 @@ while true do
 	--this commented out chunk of code is a candidate for deletion now that the frametabletable keeps track of things
 		--for now we'll avoid destroying these since we don't know which ones get destroyed yet
 		--[[	while frametableSize >= 120 do
-				for k,v in pairs(frametable) do
-					frametable[k][1] = nil
-					frametable[k][2] = nil
-					frametable[k][3] = nil
-					frametable[k] = nil
+				for k,v in pairs(ft) do
+					ft[k][1] = nil
+					ft[k][2] = nil
+					ft[k][3] = nil
+					ft[k] = nil
 					frametableSize = frametableSize - 1
 				--	debug("Removing #"..k.." from frametable.")
 					break
@@ -1428,28 +1428,28 @@ while true do
 
 
 		--this might be enough to keep our frametables clean
-		--[[frametabletable has an index in which the largest number denotes the oldest frame, so we can clear 
+		--[[ftt has an index in which the largest number denotes the oldest frame, so we can clear 
 			the frametable IDs contained in the oldest entries. It will throw an error if we try to clear a
 			a frametable ID that's already been cleared, so that part is surrounded in a conditional.
 			Also the amount of table entries to keep before being cleared should allow enough time for 
 			multiple attempts at resending the packets, but should not keep entries for long enough that 
 			it's possible for the frametime value to overlap itself. ]]
-		while #frametabletable > 240 do
-			if frametable[frametabletable[#frametabletable]] ~= nil then
+		while #ftt > 240 do
+			if ft[ftt[#ftt]] ~= nil then
 				for i=1,3 do
-					frametable[frametabletable[#frametabletable]][i] = nil
+					ft[ftt[#ftt]][i] = nil
 				end
-				frametable[frametabletable[#frametabletable]] = nil
+				ft[ftt[#ftt]] = nil
 			end
-			table.remove(frametabletable,#frametabletable)
+			table.remove(ftt,#ftt)
 		end
 
 		--same thing as above but for the remote table that keeps track of received packets
-		while #remoteframetabletable > 240 do
-			if remoteframetable[remoteframetabletable[#remoteframetabletable]] ~= nil then
-				remoteframetable[remoteframetabletable[#remoteframetabletable]] = nil
+		while #rftt > 240 do
+			if rft[rftt[#rftt]] ~= nil then
+				rft[rftt[#rftt]] = nil
 			end
-			table.remove(remoteframetabletable,#remoteframetabletable)
+			table.remove(rftt,#rftt)
 		end
 
 
