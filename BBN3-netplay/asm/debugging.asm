@@ -2,7 +2,7 @@
 //MetalMan fight for testing
 .org 0x0812BE50 :: .db 0x00 	;acdc background
 .org 0x0812BE51 :: .db 0x0B		;battle type, pvp
-.org 0x0812BE52 :: .db 0x00 	;folder unshuffled
+//.org 0x0812BE52 :: .db 0x00 	;folder unshuffled
 ;.org 0x0812BE54 :: .db 0x00 	;allow running
 ;.org 0x0812BE57 :: .db 0x10 	;music/enable running
 
@@ -25,6 +25,20 @@
 //08002904	this routine reads the battle configuration. Breakpoint it to get the data for any battle.
 
 
+/*
+.org 0x0800646C
+	bl RollbackLoop
+
+//this is the routine ^^it would normally branch to 
+.org 0x08014944
+	nop
+	nop
+	ldr		r0,=rbl_returnaddr|1
+	bx		r0
+	.pool
+	//it branches here and then immediately branches back, which does nothing within the game itself
+	//but this will be an opcode trigger for the netplay script
+*/
 
 
 oOoofakepvp	EQU	1

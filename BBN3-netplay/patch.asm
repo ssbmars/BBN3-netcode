@@ -716,6 +716,43 @@ Nothing that branches to any of this code uses hardcoded addresses, instead they
 // ============================= PUT NEW HOOKED CODE HERE
 
 
+RollbackLoop:
+	//start by branching to a consistent address, to use as a script trigger
+	//it must be a branch that leaves no trace in r14, so we'll use bx
+	ldr		r0,=0x08014944|1
+	bx		r0
+
+	rbl_returnaddr:
+	ldr		r0,=0x0203B406
+	ldrh	r0,[r0]
+	tst		r0,r0
+	beq		@@og
+	bl		8006436h
+
+
+	//og code
+	@@og:
+	mov		r3,r10
+	ldr		r3,[r3,8h]
+	ldrb	r0,[r3,0Fh]
+	cmp		r0,0Bh
+	bge		@@exit
+	mov		r3,r10
+	ldr		r3,[r3,78h]
+	ldr		r0,[r3,24h]
+	add		r0,1h
+	ldr		r1,=14996C4h
+	cmp		r0,r1
+	ble		@@write
+	mov		r0,r1
+	@@write:
+	str		r0,[r3,24h]
+	@@exit:
+	mov		r15,r14
+
+	.pool
+
+
 
 
 StallBattleStart:
@@ -814,7 +851,7 @@ DelayBuffer:
 
 	//begin custom stuff
 @@rollbackcheck:
-	ldrb	r0,[r3,6h]
+	ldrh	r0,[r3,6h]
 	tst		r0,r0
 	bne		@@rollbackframe
 
@@ -869,6 +906,7 @@ DelayBuffer:
 	add		r0,r5
 	ldrb	r0,[r0]
 		//reset stack pointer to leftmost, then iterate forward
+	//write the timestamp for this frame at the top of all the input stacks
 	push 	r1
 	mov		r1,10h
 	add		r1,r3
