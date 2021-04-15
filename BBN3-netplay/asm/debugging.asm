@@ -40,6 +40,9 @@
 	//but this will be an opcode trigger for the netplay script
 */
 
+.org 0x08006B8A
+	bl	pvpPauseCheck
+
 
 oOoofakepvp	EQU	1
 breakthings EQU 0

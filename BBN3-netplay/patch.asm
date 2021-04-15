@@ -754,6 +754,40 @@ RollbackLoop:
 
 
 
+pvpPauseCheck:
+	
+	mov		r0,0h
+	ldr		r7,=2034EE0h
+	//pvp check
+	ldrb	r2,[r5,19h]
+	cmp		r2,0Ah
+	bgt		@@exit
+
+	//og code
+	ldrh	r2,[r7,4h]
+	mov		r1,8h
+	tst		r2,r1
+	beq		@@check2
+
+	mov		r0,0h
+	strb	r0,[r5,11h]
+	mov		r0,1h
+	b		@@exit
+
+	@@check2:
+	add		r7,18h
+	ldrh	r2,[r7,4h]
+	tst		r2,r1
+	beq		@@exit
+
+	mov		r0,1h
+	strb	r0,[r5,11h]
+	@@exit:
+	mov		r15,r14
+
+	.pool
+
+
 
 StallBattleStart:
 
@@ -1025,11 +1059,26 @@ DelayBuffer:
 	b		@@noremoteinput
 
 @@applyp2:
-	//if on the cust screen, skip the guess check
+	/* disabled now because there's a new method handled by the script that seems to work really well
+
+	//if remote player is on the cust screen, skip the guess check
 	ldr		r2,[r0]
 	lsr		r2,1Ch
 	tst		r2,r2
 	bne		@@skipguessflag
+	//also skip the guess check if the local player has been in the custscreen recently
+	ldrb	r2,[r3]
+	lsl		r2,2h
+	push	r6
+	lsl		r6,r6,4h
+	add		r2,r6
+	pop		r6
+	add		r2,10h
+	ldr		r2,[r3,r2]
+	lsr		r2,1Ch
+	tst		r2,r2
+	bne		@@skipguessflag
+	*/
 
 	//check if it's a guess
 	ldrb	r2,[r0,1h]
