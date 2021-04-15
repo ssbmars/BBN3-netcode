@@ -150,138 +150,138 @@ socket = require("socket.core")
 
 	-- Took this from some Lua Tutorial
 	function string:split(sep)
-   local sep, fields = sep or ":", {}
-   local pattern = string.format("([^%s]+)", sep)
-   self:gsub(pattern, function(c) fields[#fields+1] = c end)
-   return fields
+		local sep, fields = sep or ":", {}
+		local pattern = string.format("([^%s]+)", sep)
+		self:gsub(pattern, function(c) fields[#fields+1] = c end)
+		return fields
 	end
 	
 	local function isIP(ip) 
-	local function GetIPType(ip)
-		local IPType = {
-			[0] = "Error",
-			[1] = "IPv4",
-			[2] = "IPv6",
-			[3] = "string",
-		}
-	
-		-- must pass in a string value
-		if ip == nil or type(ip) ~= "string" then
-			return IPType[0]
-		end
-	
-		-- check for format 1.11.111.111 for ipv4
-		local chunks = {ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")}
-		if (#chunks == 4) then
-			for _,v in pairs(chunks) do
-				if (tonumber(v) < 0 or tonumber(v) > 255) then
-					return IPType[0]
-				end
+		local function GetIPType(ip)
+			local IPType = {
+				[0] = "Error",
+				[1] = "IPv4",
+				[2] = "IPv6",
+				[3] = "string",
+			}
+		
+			-- must pass in a string value
+			if ip == nil or type(ip) ~= "string" then
+				return IPType[0]
 			end
-			return IPType[1]
-		else
-			return IPType[0]
+		
+			-- check for format 1.11.111.111 for ipv4
+			local chunks = {ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")}
+			if (#chunks == 4) then
+				for _,v in pairs(chunks) do
+					if (tonumber(v) < 0 or tonumber(v) > 255) then
+						return IPType[0]
+					end
+				end
+				return IPType[1]
+			else
+				return IPType[0]
+			end
+		
+			-- check for ipv6 format, should be 8 'chunks' of numbers/letters
+			local _, chunks = ip:gsub("[%a%d]+%:?", "")
+			if chunks == 8 then
+				return IPType[2]
+			end
+		
+			-- if we get here, assume we've been given a random string
+			return IPType[3]
 		end
 	
-		-- check for ipv6 format, should be 8 'chunks' of numbers/letters
-		local _, chunks = ip:gsub("[%a%d]+%:?", "")
-		if chunks == 8 then
-			return IPType[2]
-		end
-	
-		-- if we get here, assume we've been given a random string
-		return IPType[3]
-	end
-
-	local type = GetIPType(ip)
-	return ip == "localhost" or type == "IPv4" or type == "IPv6"
+		local type = GetIPType(ip)
+		return ip == "localhost" or type == "IPv4" or type == "IPv6"
 	end
 	
 	
 	local function preconnect()
-	-- Check if either Host or Client
-	tcp = socket.tcp()
-	local ip, dnsdata = socket.dns.toip(HOST_IP)
-	HOST_IP = ip
-
-	--tcp:settimeout(1/30,'b')
-	tcp:settimeout(1 / (16777216 / 280896),'b')
-
-
-	--define controller ports and offsets for individual players
-	PORTNUM = PLAYERNUM - 1
-	InputBufferLocal = InputData + PLAYERNUM
-	InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
-	PlayerHPLocal = BDA_HP + (BDA_s * PORTNUM)
-	PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+		-- Check if either Host or Client
+		tcp = socket.tcp()
+		local ip, dnsdata = socket.dns.toip(HOST_IP)
+		HOST_IP = ip
 	
-	--this math only works for 1v1s
-	InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
-	InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
-	PlayerHPRemote = BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
-	PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
-	--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
-	--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
+		--tcp:settimeout(1/30,'b')
+		tcp:settimeout(1 / (16777216 / 280896),'b')
+	
+	
+		--define controller ports and offsets for individual players
+		PORTNUM = PLAYERNUM - 1
+		InputBufferLocal = InputData + PLAYERNUM
+		InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
+		PlayerHPLocal = BDA_HP + (BDA_s * PORTNUM)
+		PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+		
+		--this math only works for 1v1s
+		InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
+		InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
+		PlayerHPRemote = BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
+		PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
+		--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
+		--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 	end
 	
 	
 	local function defineopponent()
-	-- Set who your Opponent is
-	opponent = socket.udp()
-	opponent:settimeout(0)--(1 / (16777216 / 280896))
+		-- Set who your Opponent is
+		opponent = socket.udp()
+		opponent:settimeout(0)--(1 / (16777216 / 280896))
 	end
 	
 	
 	local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
-	--dur = duration of the frame, max defines how long to hold each frame for
-	--cnt = the frame that's currently being shown, max defines how many total frames exist
-	--region = the size in pixels of each frame
-
-	gui.drawImageRegion(img, xreg * cnt, 0, xreg, yreg, xpos, ypos)
-
-	if dur == dur_max then
-		dur = 0
-		if cnt == cnt_max then
-			cnt = 0
+		--dur = duration of the frame, max defines how long to hold each frame for
+		--cnt = the frame that's currently being shown, max defines how many total frames exist
+		--region = the size in pixels of each frame
+	
+		gui.drawImageRegion(img, xreg * cnt, 0, xreg, yreg, xpos, ypos)
+	
+		if dur == dur_max then
+			dur = 0
+			if cnt == cnt_max then
+				cnt = 0
+			else
+				cnt = cnt + 1
+			end
 		else
-			cnt = cnt + 1
+			dur = dur + 1
 		end
-	else
-		dur = dur + 1
-	end
-	return dur, cnt
+		return dur, cnt
 	end
 	
 	
 	local function gui_src()
-	VSimgo = "gui_Sprites\\vs_text.png"
-	VSimgt = "gui_Sprites\\vs_text_t.png"
-	bigpet = "gui_Sprites\\PET_big.png"
-	smallpet = "gui_Sprites\\PET_small_blue.png"
-	smallpet_bright = "gui_Sprites\\PET_small_bright.png"
-
-	signal_anim = "gui_Sprites\\search_signal_blue.png"
-		dur_max_signal = 4
-		cnt_max_signal = 6
-		dur_signal = 0
-		cnt_signal = 0
-		xreg_signal = 24
-		yreg_signal = 16
-
-
-	style_h = 40
-	style_w = 130
-	motion_b = "gui_Sprites\\motion_bg_blue.png"
-	motion_p = "gui_Sprites\\motion_bg_pink.png"
-		motion_bg_w = 256
-	f1_motion_b = "gui_Sprites\\f1_motion_bg_blue.png"
-	f1_motion_p = "gui_Sprites\\f1_motion_bg_pink.png"
-
-	f2_motion_b = "gui_Sprites\\f2_motion_bg_blue.png"
-	f2_motion_p = "gui_Sprites\\f2_motion_bg_pink.png"
-
-	f3_motion_b = "gui_Sprites\\f3_motion_bg_blue.png"
-	f3_motion_p = "gui_Sprites\\f3_motion_bg_pink.png"
+		VSimgo = "gui_Sprites\\vs_text.png"
+		VSimgt = "gui_Sprites\\vs_text_t.png"
+		bigpet = "gui_Sprites\\PET_big.png"
+		smallpet = "gui_Sprites\\PET_small_blue.png"
+		smallpet_bright = "gui_Sprites\\PET_small_bright.png"
+	
+		signal_anim = "gui_Sprites\\search_signal_blue.png"
+			dur_max_signal = 4
+			cnt_max_signal = 6
+			dur_signal = 0
+			cnt_signal = 0
+			xreg_signal = 24
+			yreg_signal = 16
+	
+	
+		style_h = 40
+		style_w = 130
+		motion_b = "gui_Sprites\\motion_bg_blue.png"
+		motion_p = "gui_Sprites\\motion_bg_pink.png"
+			motion_bg_w = 256
+		f1_motion_b = "gui_Sprites\\f1_motion_bg_blue.png"
+		f1_motion_p = "gui_Sprites\\f1_motion_bg_pink.png"
+	
+		f2_motion_b = "gui_Sprites\\f2_motion_bg_blue.png"
+		f2_motion_p = "gui_Sprites\\f2_motion_bg_pink.png"
+	
+		f3_motion_b = "gui_Sprites\\f3_motion_bg_blue.png"
+		f3_motion_p = "gui_Sprites\\f3_motion_bg_pink.png"
 	end
 	
 
@@ -305,6 +305,24 @@ socket = require("socket.core")
 	d_pos6 = d_pos5 + 12
 	
 	--end of debug stuff
+
+	local function readbyterange(addr, length) --length must be multiples of 0x4
+		local x = math.floor(length /4)
+		local temptable = {}
+		for i=0, x do
+			table.insert(temptable, 1, memory.read_u32_le(addr + i*0x4))
+		end
+		return temptable
+	end
+	
+	local function writebyterange(addr, usetable)
+		local tmptable = {}
+		tmptable = usetable
+		for i=0, #tmptable - 1 do
+			memory.write_u32_le(addr + i*0x4, tmptable[#tmptable])
+			table.remove(tmptable,#tmptable)
+		end
+	end
 --End of "Define constants and various functions"
 
 
@@ -1109,7 +1127,6 @@ local function SendStats()
 		memory.write_u8(0x0200F31F, 0x0)
 		return
 	end
-	if opponent == nil then debug("nopponent") return end
 
 	-- Get Frame Timer.
 	while tostring(math.floor((socket.gettime()*10000) % 0x100000)) == ftt[1] do
@@ -1390,8 +1407,17 @@ local function ApplyRemoteInputs()
 	if resimulating then return end --and (memory.read_u8(rollbackflag) % 2)== 0 then return end --while resimulating, only run every other frame
 	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
-	--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
-	memory.write_u8(InputStackRemote+1,0x1)
+	--check the current gamestate to resolve whether a rollback to this frame should be allowed
+	--battle state is 0x0C
+		--there are no other states I currently know of where rollback should be allowed
+	if memory.read_u8(0x02006CA1) == 0x0C then --and memory.read_u8(0x02006CA2) ~= 0x0 then
+		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
+		memory.write_u8(InputStackRemote+1,0x1)
+	else
+		--by default it copies the data from the previous frame, so we must intentionally clear the "unreceived" flag to prevent rollbacks
+		memory.write_u8(InputStackRemote+1,0)
+	end
+
 	--write the last received input to the latest entry, This will be undone when the corresponding input is received
 	memory.write_u16_le(InputStackRemote+0x2, ari_lastinput)
 
@@ -1948,6 +1974,7 @@ while true do
 					table.insert(FullInputStack, 1, memory.read_u32_le(InputData + i*0x4))
 				end
 
+
 				--load savestate
 				memorysavestate.loadcorestate(sav[rollbackframes])
 
@@ -1956,6 +1983,7 @@ while true do
 					memory.write_u32_le(InputData + i*0x4,FullInputStack[#FullInputStack])
 					table.remove(FullInputStack,#FullInputStack)
 				end
+
 
 				--enable the SPEED
 				emu.limitframerate(false)
