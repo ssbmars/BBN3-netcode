@@ -723,10 +723,18 @@ RollbackLoop:
 	bx		r0
 
 	rbl_returnaddr:
-	ldr		r0,=0x0203B406
-	ldrh	r0,[r0]
+	ldr		r1,=0x0203B406
+
+	//check if the rollback countdown is set
+;	ldrb	r0,[r1]
+;	tst		r0,r0
+;	beq		@@og
+
+	//check if the resimulating flag is set
+	ldrb	r0,[r1,1h]
 	tst		r0,r0
 	beq		@@og
+
 	bl		8006436h
 
 
@@ -885,9 +893,21 @@ DelayBuffer:
 
 	//begin custom stuff
 @@rollbackcheck:
-	ldrh	r0,[r3,6h]
+	ldrb	r0,[r3,7h]
 	tst		r0,r0
-	bne		@@rollbackframe
+	beq		@@preparememcopy
+
+	ldrb	r0,[r3,6h]
+	sub		r0,1h
+	bmi		@@stopresim
+	strb	r0,[r3,6h]
+
+	b 		@@rollbackframe
+
+	@@stopresim:
+	bl		scriptstopresim
+	mov		r0,0h
+	strb	r0,[r3,7h]
 
 @@preparememcopy:
 	push	r3
@@ -1117,6 +1137,17 @@ DelayBuffer:
 
 
 @@exitDelayBuffer:
+	ldrb	r0,[r3,6h]
+	tst		r0,r0
+	beq		@@realexit
+	ldrb	r0,[r3,7h]
+	tst		r0,r0
+	bne		@@realexit
+	mov		r0,1h
+	strb	r0,[r3,7h]
+	bl		scriptbeginresim
+
+	@@realexit:
 	pop		r3,r6,r7,r15
 
 

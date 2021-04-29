@@ -25,7 +25,7 @@
 //08002904	this routine reads the battle configuration. Breakpoint it to get the data for any battle.
 
 
-/*
+
 .org 0x0800646C
 	bl RollbackLoop
 
@@ -38,7 +38,7 @@
 	.pool
 	//it branches here and then immediately branches back, which does nothing within the game itself
 	//but this will be an opcode trigger for the netplay script
-*/
+
 
 .org 0x08006B8A
 	bl	pvpPauseCheck
@@ -184,17 +184,17 @@ breakthings EQU 0
 
 // this does nothing, but it's a consistent offset for the script to check for, the input routine
 // will branch here to signify that it's finished cycling the stack but hasn't applied p2's inputs yet
-.org 0x08008800	
+.org 0x08008800
 scriptinjectinputs:
 	nop
 	mov		r15,r14
 scriptsetport:
 	nop
 	mov		r15,r14
-
+scriptbeginresim:
 	nop
 	mov		r15,r14
-
+scriptstopresim:
 	nop
 	mov		r15,r14
 
