@@ -1501,7 +1501,7 @@ local function ApplyRemoteInputs()
 					local iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
 					--compare both inputs, set the rollback flag if they don't match
 					if iGuess ~= iCorrected then
-						ari_rbAmount =  math.floor((1+ari_localtimestamp -   ((memory.read_u8(InputBufferRemote) + c[currentpacket][2]) % 256)) %256)
+						ari_rbAmount =  math.floor((2+ari_localtimestamp -   ((memory.read_u8(InputBufferRemote) + c[currentpacket][2]) % 256)) %256)
 						--this will use the pointer to decide how many frames back to jump
 						--it can rewrite the flag many times in a frame, but it will keep the largest value for that frame
 						--it jumps to the frame that the input will be executed, rather than when the input was created
