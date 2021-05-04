@@ -214,12 +214,14 @@ socket = require("socket.core")
 		InputStackLocal = InputData + 0x10 + (PORTNUM*0x4)
 		PlayerHPLocal = BDA_HP + (BDA_s * PORTNUM)
 		PlayerDataLocal = PlayerData + (PD_s * PORTNUM)
+		BattleData_A_Local = BattleData_A + (BDA_s * PORTNUM)
 		
 		--this math only works for 1v1s
 		InputStackRemote =  InputData + 0x10 + (0x4*bit.bxor(1, PORTNUM))
 		InputBufferRemote = InputData + 0x1 + bit.bxor(1, PORTNUM)
 		PlayerHPRemote = BDA_HP + (BDA_s * bit.bxor(1, PORTNUM))
 		PlayerDataRemote = PlayerData + (PD_s * bit.bxor(1, PORTNUM))
+		BattleData_A_Remote = BattleData_A + (BDA_s * bit.bxor(1, PORTNUM))
 		--this is fine for now. To support more than 2 players it will need to define these after everyone has connected, 
 		--and up to 3 sets of "Remote" addresses will need to exist. But this won't matter any time soon.
 	end
@@ -328,21 +330,23 @@ socket = require("socket.core")
 
 local function cleanstate()
 	--define variables that we might adjust sometimes
-	
+
 	BufferVal = 2		--input lag value in frames
 	debugmessages = 1	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
 	delaybattletimer = 30
-	savecount = 60	--amount of savestate frames to keep
+	savecount = 220	--amount of savestate frames to keep
 	client.displaymessages(false)
 	emu.minimizeframeskip(true)
+	client.enablerewind(false)
 	client.frameskip(0)
 	HideResim = true
 	TargetFrame = 167.4270629882813 --gonna give this more specific value a shot
 	--167.427063 --166.666666666667
 	TargetSpeed = 100
 	client.speedmode(TargetSpeed)
+	TempTargetSpeed = 100
 	
 	--set variables at script start
 	rollbackframes = 0
@@ -430,6 +434,7 @@ local function cleanstate()
 
 	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
 	menu = nil
+	serialize = true
 end
 cleanstate()
 
@@ -884,6 +889,12 @@ end
 
 local function FrameStart()
 	if thisispvp == 0 then return end 
+	--[[this routine only has a niche use. It does not run from an opcode execution, but rather is tied to what 
+		the emulator believes to be the beginning of the frame. So it is unreliable for anything involving
+		time-sensitive code due to how rollbacks work.
+		However, this routine can run even when the game is running a loop where it's essentially doing nothing.
+		This makes it very helpful for ensuring that we can always receive packets from the other players.
+	  ]]
 
 	if connected then 
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
@@ -891,14 +902,30 @@ local function FrameStart()
 end
 event.onframestart(FrameStart,"FrameStart")
 
+
 --runs right before the gamestate update, is included in the loop during rollback
 local function PreBattleLoop()
 	if thisispvp == 0 then return end
+
+	--for whatever reason, pressing a lot of buttons can cause this function to run multiple times
+	--in a single frame, which is really bad. This is a quick fix at least until I can find the 
+	--exact reason why this is happening
+	pbl_currenttimestamp = memory.read_u8(0x0203b380)
+
+	if pbl_prevtimestamp then
+		if memory.read_u8(0x02006CA1) == 0x0C and pbl_currenttimestamp == pbl_prevtimestamp then
+			return
+		end
+	end
+	pbl_prevtimestamp = pbl_currenttimestamp
+
+
 	fs_TimeToSlowDown = nil
 
 	--define this value as early as possible in the function
 	sockettime = math.floor((socket.gettime()*10000) % 0x100000) -- 0x100000 = 1048576 in decimal
 	--debugdraw(50, 14, sockettime)
+
 
 	--create savestates for rollback
 	table.insert(save, 1, memorysavestate.savecorestate())
@@ -908,15 +935,18 @@ local function PreBattleLoop()
 		table.remove(save,#save)
 	end
 
-	--if resimulating then return end
-	if memory.read_u8(rollbackflag) ~= 0 then return end
 
-	if exitrollback then
-		client.invisibleemulation(false)
-		emu.limitframerate(true)
-		framethrottle = true
-		exitrollback = nil
+	if resimulating then 
+		if memory.read_u8(rollbackflag+1) == 0 then
+			resimulating = nil
+			client.invisibleemulation(false)
+			emu.limitframerate(true)
+			framethrottle = true
+		else
+			return
+		end 
 	end
+
 
 	--compensate for local frame stuttering by temporarily speeding up
 	--make sure this also can compensate for the time spent on rollbacks
@@ -947,40 +977,29 @@ local function PreBattleLoop()
 		client.speedmode(TargetSpeed)
 		TempTargetSpeed = 100
 	end
-
-	--[[if fs_timerift > TargetFrame then 
-		--speed up if the timerift has surpassed 1 frame worth of ms
-		if framethrottle == true then 
-			emu.limitframerate(false) 
-			framethrottle = false
-		end
-	elseif fs_timerift < -50 then
-		fs_TimeToSlowDown = true
-		client.speedmode(TargetSpeed-25)
-		if framethrottle == false then
-			emu.limitframerate(true)
-			framethrottle = true
-		end	
-	else
-		if framethrottle == false then
-			emu.limitframerate(true)
-			framethrottle = true
-		end
-		client.speedmode(TargetSpeed)
-	end]]
-
-
-
 end
-event.onmemoryexecute(PreBattleLoop,0x08006436,"PreBattleLoop")
+event.onmemoryexecute(PreBattleLoop,0x08006438,"PreBattleLoop")
 
 
 --runs soon after the gamestate update
 local function BattleLoop()
 	if thisispvp == 0 then return end
 	--nothing yet
+--	if resimulating then
+--		bl_p1_anim = memory.read_u32_le(BattleData_A_Local + 0xAC)
+--		bl_p2_anim = memory.read_u32_le(BattleData_A_Remote + 0xAC)
+--		if bl_P1_prev_anim then
+--			if (bl_p1_anim ~= bl_P1_prev_anim) or (bl_p2_anim ~= bl_P2_prev_anim) then
+--				memory.write_u8(rollbackflag+2,0x1)
+--			end
+--		end
+--		bl_P1_prev_anim = bl_p1_anim
+--		bl_P2_prev_anim = bl_p2_anim
+--	else
+--		bl_P1_prev_anim = nil
+--	end
 end
---event.onmemoryexecute(BattleLoop,0x08014944,"BattleLoop")
+event.onmemoryexecute(BattleLoop,0x08014944,"BattleLoop")
 
 
 
@@ -990,7 +1009,7 @@ local function StartResim()
 	--runs once when rollback begins, but not on subsequent rollback frames
 	local rollbackframes = memory.read_u8(rollbackflag)
 
-	if rollbackframes == 0 then return end	--just in case, this shouldn't ever be true but the rest would break if it was
+	if rollbackframes == 0 then return end	--just in case, this shouldn't ever be true but the rest would break if it somehow was
 	
 	resimulating = true
 
@@ -1014,8 +1033,15 @@ local function StartResim()
 		table.insert(FullInputStack, 1, memory.read_u32_le(InputData + i*0x4))
 	end
 
+
+
+	--try copying some visual data
+	--local visdata = readbyterange(0x0200C0C0,0x140)
+
+
 	--load savestate
 	memorysavestate.loadcorestate(save[rollbackframes])
+
 
 	--write the corrected input stack to RAM
 	for i=0,(stacksize*4)+0x10 do
@@ -1023,30 +1049,42 @@ local function StartResim()
 		table.remove(FullInputStack,#FullInputStack)
 	end
 
+
+	--writebyterange(0x0200C0C0, visdata)
+
+
 	--enable the SPEED
 	emu.limitframerate(false)
 	framethrottle = false
+	pbl_prevtimestamp = nil
 	if HideResim then
 		client.invisibleemulation(true)
 	end
 
+
+	rollbackframes = rollbackframes - 1
+	memory.write_u8(rollbackflag, rollbackframes)
+
+
 	--delete the savestates for the frames that will be resimulated
 	--(they will be recreated upon resimulation)
 	--this is very important
-	for i=1, rollbackframes do
+	for i=0, rollbackframes-1 do
 		memorysavestate.removestate(save[1])
 		table.remove(save,1)
 	end
+
+	--create savestate for the frame that was jumped to
+	--table.insert(save, 1, memorysavestate.savecorestate())
 end
 event.onmemoryexecute(StartResim,0x08008808,"StartResim")
 
 
 local function StopResim()
 	if thisispvp == 0 then return end
-	resimulating = nil
-	exitrollback = true
+	--probably going to depreciate this routine
 end
-event.onmemoryexecute(StopResim,0x0800880C,"StopResim")
+--event.onmemoryexecute(StopResim,0x0800880C,"StopResim")
 
 
 -- Sync Custom Screen
@@ -1147,7 +1185,7 @@ local function custsynchro()
 
 			print(currentFrameTime.." - "..h[1].." = "..FrameTimeDif)
 			print("int      = "..WholeFrames)
-			print("waittime = "..h[2])
+			--print("waittime = "..h[2])
 			print("adjusted = "..adj_CntDn)
 			--clean the table
 			h = {}
@@ -1604,10 +1642,10 @@ local function SendInputs()
 
 		-- Reset to Disconnect
 		-- Will also disconnect the other player
-		local buttons = joypad.get()
-		if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
-			closebattle()
-		end
+		--local buttons = joypad.get()
+		--if (buttons["A"] and buttons["B"] and buttons["Start"] and buttons["Select"]) then
+		--	closebattle()
+		--end
 	end
 end
 
@@ -1658,7 +1696,6 @@ local function ApplyRemoteInputs()
 
 	local ari_localtimestamp = memory.read_u8(0x0203b380)
 	local stacksize = memory.read_u8(InputStackSize)
-	
 
 	local debugaroony = 0
 
@@ -1750,6 +1787,7 @@ local function ApplyRemoteInputs()
 						if memory.read_u8(rollbackflag) < ari_rbAmount then
 							memory.write_u8(rollbackflag, ari_rbAmount)
 							rbtrigger = (c[currentpacket][2] % 256)
+							tsbeforerb = ari_localtimestamp
 						end
 						emu.limitframerate(false)
 						framethrottle = false
@@ -1823,9 +1861,13 @@ local function ApplyRemoteInputs()
 
 	--detect when a guess input is about to be pushed out of the input stack
 
+	--local isdropped = memory.read_u8(InputStackRemote  + 0x1 + 0x100)
 	local isdropped = memory.read_u8(InputStackRemote + 0x1 + stacksize*0x10)
 	if isdropped ~= 0 then
 		ari_droppedcount = ari_droppedcount + 1
+		--local read_addr = memory.read_u8(InputStackRemote + 0x100)
+		local read_addr = memory.read_u8(InputStackRemote + stacksize*0x10)
+		print(bizstring.hex(read_addr))
 	end
 	debugdraw(240 - 30, 160 - 12, ari_droppedcount)
 
@@ -2080,8 +2122,74 @@ end
 event.onmemoryexecute(MainLoop,0x080002B4,"MainLoop")
 
 
+local function loadsavestate()
+	statemenu = forms.newform(250,120,"Savestate",function() return nil end)
+	local windowsize = client.getwindowsize()
+	local form_xpos = (client.xpos() + 120*windowsize - 90)
+	local form_ypos = (client.ypos() - 100)
+	forms.setlocation(statemenu, form_xpos, form_ypos)
+	textbox_frame = forms.textbox(statemenu,"1",40,24,nil,14,5)
 
--- Main Loop (runs purely based on time instead of opcodes ran)
+	textbox_rb = forms.textbox(statemenu,"1",40,24,nil,169,5)
+
+	checkbox_serial = forms.checkbox(statemenu,"Serialize",10,60)
+
+	local function loadthatstate(incr)
+		return function()
+			local i = forms.gettext(textbox_frame)
+			i = tonumber(i)
+			if not(incr) then
+				if i > 0 and i < (1 + #save) then
+					memorysavestate.loadcorestate(save[i])
+				end
+			else
+				i = i + incr
+				if i > 0 and i < (1 + #save) then
+					forms.settext(textbox_frame, tostring(i))
+					memorysavestate.loadcorestate(save[i])
+					print(bizstring.hex(memory.read_u8(0x0203B380)) .. "  loaded")
+				end
+			end
+		end
+	end
+	button_load = forms.button(statemenu,"Load", loadthatstate(nil), 10,28,48,24)
+	button_load = forms.button(statemenu,"fwrd", loadthatstate(-1), 62,5,48,20)
+	button_load = forms.button(statemenu,"back", loadthatstate(1), 62,28,48,24)
+
+
+	local function rollbackthatstate()
+		return function()
+			serialize = forms.ischecked(checkbox_serial)
+
+			local i = forms.gettext(textbox_rb)
+			i = tonumber(i)
+			memory.write_u8(rollbackflag,i)
+			print("rollback by " .. i )
+			StartResim()
+		end
+	end
+	button_load = forms.button(statemenu,"RollBack",rollbackthatstate(), 155,28,70,24)
+
+end
+enablestatedebug = nil
+
+
+local function zerocheck()
+	local x = memory.read_u8(0x0203B360)
+	if x == 0 then
+		print("zerocheck() detected a skip")
+	end
+end
+event.onmemoryexecute(zerocheck,0x08008584)
+
+
+local function secondskip()
+	print("secondskip detected")
+end
+event.onmemoryexecute(secondskip,0x08008590)
+
+
+-- End of Frame loop (runs purely based on time instead of opcodes ran)
 while true do
 	
 	--Reusable code for initializing the socket connection between players
@@ -2137,6 +2245,13 @@ while true do
 		end
 	end
 
+
+	--debug code for selecting and loading previous serialized frames when Select is pressed
+	if enablestatedebug and bit.band(memory.read_u8(0x02009760), 0x4) == 0x4 and not(amloadingstates) then
+		loadsavestate()
+		client.pause()
+		amloadingstates = true
+	end 
 
 	emu.frameadvance()
 end

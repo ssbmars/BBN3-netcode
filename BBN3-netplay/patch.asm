@@ -726,15 +726,36 @@ RollbackLoop:
 	ldr		r1,=0x0203B406
 
 	//check if the rollback countdown is set
-;	ldrb	r0,[r1]
-;	tst		r0,r0
-;	beq		@@og
+	ldrb	r0,[r1]
+	tst		r0,r0
+	beq		@@og
 
 	//check if the resimulating flag is set
 	ldrb	r0,[r1,1h]
 	tst		r0,r0
 	beq		@@og
 
+	//???? attempt at visual fix, unsuccessful
+;	ldrb	r0,[r1,2h]
+;	tst		r0,r0
+;	beq		@@ligma
+;	mov		r0,0h
+;	strb	r0,[r1,2h]
+;
+;	bl		80027E0h
+;	bl		800383Ch
+;
+;	@@ligma:
+	//progress the background layer
+	bl		8001E90h
+
+	//progress the background data
+	bl		800200Ch
+
+	//attempt to fix desync scenario with fading out of timefreeze
+	bl		80052D4h
+
+	//progress the gamestate
 	bl		8006436h
 
 
@@ -905,9 +926,10 @@ DelayBuffer:
 	b 		@@rollbackframe
 
 	@@stopresim:
-	bl		scriptstopresim
+;	bl		scriptstopresim
 	mov		r0,0h
 	strb	r0,[r3,7h]
+	b		@@rollbackframe
 
 @@preparememcopy:
 	push	r3
@@ -1137,6 +1159,8 @@ DelayBuffer:
 
 
 @@exitDelayBuffer:
+
+	//check if a rollback has been queued
 	ldrb	r0,[r3,6h]
 	tst		r0,r0
 	beq		@@realexit
