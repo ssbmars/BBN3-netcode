@@ -331,14 +331,14 @@ socket = require("socket.core")
 local function cleanstate()
 	--define variables that we might adjust sometimes
 
-	BufferVal = 2		--input lag value in frames
-	debugmessages = 1	--toggle whether to print debug messages
+	BufferVal = 1		--input lag value in frames
+	debugmessages = 0	--toggle whether to print debug messages
 	rollbackmode = 1	--toggle this between 1 and nil
 	saferollback = 6
 	delaybattletimer = 30
-	savecount = 220	--amount of savestate frames to keep
+	savecount = 60	--amount of savestate frames to keep
 	client.displaymessages(false)
-	emu.minimizeframeskip(true)
+	emu.minimizeframeskip(false)
 	client.enablerewind(false)
 	client.frameskip(0)
 	HideResim = true
@@ -389,6 +389,7 @@ local function cleanstate()
 	timedout = 0
 	ari_lastinput = 0
 	ari_droppedcount = 0
+	ari_contig_non_rb = 0
 	save = {}  --savestate ID table
 	FullInputStack = {}  --input stack for rollback frames
 	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
@@ -985,22 +986,8 @@ event.onmemoryexecute(PreBattleLoop,0x08006438,"PreBattleLoop")
 local function BattleLoop()
 	if thisispvp == 0 then return end
 	--nothing yet
---	if resimulating then
---		bl_p1_anim = memory.read_u32_le(BattleData_A_Local + 0xAC)
---		bl_p2_anim = memory.read_u32_le(BattleData_A_Remote + 0xAC)
---		if bl_P1_prev_anim then
---			if (bl_p1_anim ~= bl_P1_prev_anim) or (bl_p2_anim ~= bl_P2_prev_anim) then
---				memory.write_u8(rollbackflag+2,0x1)
---			end
---		end
---		bl_P1_prev_anim = bl_p1_anim
---		bl_P2_prev_anim = bl_p2_anim
---	else
---		bl_P1_prev_anim = nil
---	end
 end
 event.onmemoryexecute(BattleLoop,0x08014944,"BattleLoop")
-
 
 
 local function StartResim()
@@ -1681,12 +1668,16 @@ local function ApplyRemoteInputs()
 	--check the current gamestate to resolve whether a rollback to this frame should be allowed
 	--battle state is 0x0C
 		--there are no other states I currently know of where rollback should be allowed
-	if memory.read_u8(0x02006CA1) == 0x0C then --and memory.read_u8(0x02006CA2) ~= 0x0 then
+	if memory.read_u8(0x02006CA1) == 0x0C then
 		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
 		memory.write_u8(InputStackRemote+1,0x1)
-	else
+		ari_contig_non_rb = 0
+	elseif ari_contig_non_rb > 2 then
 		--by default it copies the data from the previous frame, so we must intentionally clear the "unreceived" flag to prevent rollbacks
 		memory.write_u8(InputStackRemote+1,0)
+	else
+		memory.write_u8(InputStackRemote+1,0x1)
+		ari_contig_non_rb = ari_contig_non_rb + 1
 	end
 
 	--write the last received input to the latest entry, This will be undone when the corresponding input is received
@@ -1897,8 +1888,10 @@ local function closebattle()
 		ft[k] = nil
 	end
 
-	opponent:send("disconnect")
-	opponent:close()
+	if opponent then 
+		opponent:send("disconnect")
+		opponent:close()
+	end
 	
 	cleanstate()
 	connectionform()
@@ -2035,89 +2028,10 @@ local function MainLoop()
 		end
 	end
 
-
-	--[[
-	--rollback routine
-	if thisispvp == 1 then
-			--check if we need to roll back
-		local rollbackframes = memory.read_u8(rollbackflag)
-
-		if rollbackframes > 0 then
-			--runs once when rollback begins, but not on subsequent rollback frames
-			if not(resimulating) then
-				resimulating = true
-				memory.write_u8(rollbackflag+1,0x1)
-				debugrbjump = rollbackframes
-				--update inputs that are still guesses with the more recent data
-				local pointer = rollbackframes + memory.read_u8(InputBufferRemote)
-				local isguess = nil
-				local newguess = nil
-				while pointer > -1 do
-					isguess = memory.read_u8(InputStackRemote+1 +pointer*0x10)
-					if isguess == 0 then
-						newguess = memory.read_u16_le(InputStackRemote+2 +pointer*0x10)
-					elseif newguess then
-						memory.write_u16_le(InputStackRemote + 0x2 + pointer*0x10, newguess)
-					end
-					pointer = pointer - 1
-				end
-
-				--save the corrected input stack
-				local stacksize = memory.read_u8(InputStackSize)
-				for i=0,(stacksize*4)+0x10 do
-					table.insert(FullInputStack, 1, memory.read_u32_le(InputData + i*0x4))
-				end
-
-				local tsbeforerb = memory.read_u8(0x0203b380)
-
-				--load savestate
-				memorysavestate.loadcorestate(save[rollbackframes])
-
-				--write the corrected input stack to RAM
-				for i=0,(stacksize*4)+0x10 do
-					memory.write_u32_le(InputData + i*0x4,FullInputStack[#FullInputStack])
-					table.remove(FullInputStack,#FullInputStack)
-				end
-
-
-				--enable the SPEED
-				emu.limitframerate(false)
-				framethrottle = false
-				if HideResim then
-					client.invisibleemulation(true)
-				end
-
-				--delete the savestates for the frames that will be resimulated
-				--(they will be recreated upon resimulation)
-				--this is very important
-				for i=1, rollbackframes do
-					memorysavestate.removestate(save[1])
-					table.remove(save,1)
-				end
-
-				--print( "(" .. rbtrigger .. ")  " .. tsbeforerb .. " - " .. rollbackframes .. " = " .. memory.read_u8(0x0203b380) )
-			end
-
-			--if it's the final rollback frame, queue it up to display the next frame
-			if rollbackframes == 0 then
-				--IMPORTANT: we cannot end resimulation at this point. It must run another frame before disabling resimulation in order to properly
-				--compensate for how long it spent resimulating. Otherwise it will lag further behind the other player after each rollback
-			end
-
-		else
-			--default branch when not in a rollback frame
-			if resimulating then
-				--restore normal speed if just now exiting out of rollback
-				resimulating = nil
-				memory.write_u8(rollbackflag+1,0)
-				--client.invisibleemulation(false)
-				--framethrottle = true
-				--emu.limitframerate(true)
-				exitrollback = true
-			end
-		end
+	if resimulating then
+		client.invisibleemulation(false)
 	end
-	]]
+
 end
 event.onmemoryexecute(MainLoop,0x080002B4,"MainLoop")
 
@@ -2173,20 +2087,6 @@ local function loadsavestate()
 end
 enablestatedebug = nil
 
-
-local function zerocheck()
-	local x = memory.read_u8(0x0203B360)
-	if x == 0 then
-		print("zerocheck() detected a skip")
-	end
-end
-event.onmemoryexecute(zerocheck,0x08008584)
-
-
-local function secondskip()
-	print("secondskip detected")
-end
-event.onmemoryexecute(secondskip,0x08008590)
 
 
 -- End of Frame loop (runs purely based on time instead of opcodes ran)
