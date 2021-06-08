@@ -46,6 +46,8 @@ local function choosegame(game, patch)
 		end
 end
 
+
+void_path = "Netplay\\voidrom.gba"
 BBN3_path = "Netplay\\BBN3 Online.gba"
 BBN3_bat = '".\\patches\\patch BBN3.bat"'
 
@@ -68,18 +70,33 @@ local function startmenu()
 	rom_path = nil
 	bat_path = nil
 	src_rom = nil
-
 end
+
+local function bootvoidrom()
+	local isrom = emu.getsystemid()
+	if isrom == "NULL" then 
+		choosegame(void_path, nil)
+		if rom_path then
+			if file_exists(rom_path) == true then
+				opengame(rom_path)
+			end
+		end
+	end
+end
+bootvoidrom()
 
 
 -- cd /d %~dp0
 -- flips -a "../patches/BBN3.bps" %1 "../BBN3/BBN3.gba"
 
 function newform()
-	thisgame = emu.getsystemid()
+	local thisgame = emu.getsystemid()
 	if thisgame ~= "NULL" then 
-		formopen = nil
-		return 
+		thisgame = gameinfo.getromname()
+		if thisgame ~= "voidrom" then
+			formopen = nil
+			return
+		end
 	end
 	formopen = true
 	rom_path = nil
@@ -107,12 +124,750 @@ while delaymenu > 0 do
 	delaymenu = delaymenu - 1
 	emu.frameadvance()
 end
-newform()
+--newform()
 
+
+local function configdefaults()
+		username = "username"
+		language = "language"
+		use_translation_patches = "use_translation_patches"
+		reduce_movement = "reduce_movement"
+		remember_position = "remember_position"
+		remember_version = "remember_version"
+		last_pos_x = "last_pos_x"
+
+		config_keys = {
+			{username, "NetBattler"}, 
+			{language, "ENG"}, 
+			{use_translation_patches, "true"}, 
+			{reduce_movement, "false"},
+			{remember_position, "true"},
+			{remember_version, "true"},
+			{last_pos_x, 1}}
+
+end
+configdefaults()
+
+
+local function initdatabase()
+	if not file_exists("tango.db") then
+		SQL.createdatabase("tango.db")
+	end
+
+	if file_exists("tango.db") then
+		tangotime = true
+		SQL.opendatabase("tango.db")
+
+		SQL.writecommand("CREATE TABLE IF NOT EXISTS config_table (ID INTEGER PRIMARY KEY, setting_name TEXT UNIQUE, val);")
+		SQL.writecommand("CREATE TABLE IF NOT EXISTS pos (ID INTEGER PRIMARY KEY, pos_x INTEGER UNIQUE, pos_y INTEGER);")
+
+
+		--read the existing config data and populate the config file with defaults if data is missing
+
+		config_raw = {}
+		config_raw = SQL.readcommand("SELECT * FROM config_table;")
+		--print(config_raw)
+		config = {}
+
+		--first, read the existing data and check whether there's any missing data
+		for i=0, #config_keys do
+			if config_raw["setting_name "..i] and config_raw["val "..i] then
+				config[config_raw["setting_name "..i]] = config_raw["val "..i]
+			end
+		end
+
+		--if there is any missing data, populate the database with default values for the missing data
+		for i=1, #config_keys do
+			if not config[config_keys[i][1]] then
+				--print(config_keys[i][1])
+				SQL.writecommand("REPLACE INTO config_table (setting_name, val) VALUES(".."'".. config_keys[i][1] .."'"..",".."'".. config_keys[i][2] .."'"..");")
+			end
+		end
+
+		--load the updated database into the table
+		config = {}
+		config_raw = SQL.readcommand("SELECT * FROM config_table;")
+		for i=0, #config_keys do
+			if config_raw["setting_name "..i] and config_raw["val "..i] then
+				config[config_raw["setting_name "..i]] = config_raw["val "..i]
+			end
+		end
+
+	else
+		print("unable to create config file")
+		tangotime = false
+		config = {}
+		for i=1, #config_keys do
+			config[config_keys[i][1]] = config_keys[i][2]
+		end
+	end
+end
+initdatabase()
+
+
+local function saveconfig(name, val)
+	if val then
+		config[name] = val
+	end
+	if not tangotime then return end
+	SQL.writecommand("REPLACE INTO config_table (setting_name, val) VALUES(".."'".. name .."'"..",".."'".. config[name] .."'"..");")
+	--update config table in memory
+	config = {}
+	config_raw = SQL.readcommand("SELECT * FROM config_table;")
+	for i=0, #config_keys do
+		if config_raw["setting_name "..i] and config_raw["val "..i] then
+			config[config_raw["setting_name "..i]] = config_raw["val "..i]
+		end
+	end
+end
+
+local function savepos(x, y)
+	if not tangotime then return end
+	SQL.writecommand("REPLACE INTO pos (pos_x, pos_y) VALUES("..x..","..y..");")
+end
+
+local function input(i,count)
+	local press = nil
+	local hold = nil
+	local release = nil
+	if not count then count = 0 end
+	-- begin
+	if ctrl[i] then
+		if count >= 16 then
+			hold = true
+		else
+			if count == 0 then
+				press = true
+			end
+			count = count + 1
+		end
+	else
+		if count > 0 then
+			release = true
+		end
+		count = 0
+	end
+	return press, hold, release, count
+end
+
+local function proc_ctrl()
+	ctrl = joypad.get()
+	--c_p means press, c_h means hold, c_r means release
+	--cont_ means contiguous, for # of contiguous frames that a button is being pressed
+
+	c_p_A, c_h_A, c_r_A, cont_A = input('A', cont_A)
+	c_p_B, c_h_B, c_r_B, cont_B = input('B', cont_B)
+	c_p_L, c_h_L, c_r_L, cont_L = input('L', cont_L)
+	c_p_R, c_h_R, c_r_R, cont_R = input('R', cont_R)
+	c_p_Start, c_h_Start, c_r_Start, cont_Start = input('Start', cont_Start)
+	c_p_Select, c_h_Select, c_r_Select, cont_Select = input('Select', cont_Select)
+	c_p_Up, c_h_Up, c_r_Up, cont_Up = input('Up', cont_Up)
+	c_p_Down, c_h_Down, c_r_Down, cont_Down = input('Down', cont_Down)
+	c_p_Left, c_h_Left, c_r_Left, cont_Left = input('Left', cont_Left)
+	c_p_Right, c_h_Right, c_r_Right, cont_Right = input('Right', cont_Right)
+end
+
+
+
+	x_max = 240
+	y_max = 160
+	x_center = x_max/2 
+	y_center = y_max/2
+	-- "gui_Sprites\\menu\\.png"
+	BBN3_img = "gui_Sprites\\menu\\title_BBN3.png"
+	BN6_img = "gui_Sprites\\menu\\title_BN6.png"
+	BN6f_img = "gui_Sprites\\menu\\title_BN6f.png"
+	BN6g_img = "gui_Sprites\\menu\\title_BN6g.png"
+	EXE6f_img = "gui_Sprites\\menu\\title_EXE6f.png"
+	EXE6g_img = "gui_Sprites\\menu\\title_EXE6g.png"
+
+	nameplate = "gui_Sprites\\menu\\nameplate.png"
+	tooltips = "gui_Sprites\\menu\\tooltips.png"
+	footer = "gui_Sprites\\menu\\footer.png"
+	settings_footer = "gui_Sprites\\menu\\settings_footer.png"
+	checkmark = "gui_Sprites\\menu\\checkmark.png"
+	flags = "gui_Sprites\\menu\\flags.png"
+
+	arrows = "gui_Sprites\\menu\\arrows.png"
+	arrow_up = "gui_Sprites\\menu\\arrow_up.png"
+	arrow_down = "gui_Sprites\\menu\\arrow_down.png"
+	arrow_left = "gui_Sprites\\menu\\arrow_left.png"
+	arrow_right = "gui_Sprites\\menu\\arrow_right.png"
+	arrow_size = 9
+
+	playername = config[username]
+
+
+	--define the granular values in a different table for each game, then place those tables into a main table
+	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = "BBN3"}}
+
+	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = "BN6 Gregar"},
+			{[1] = BN6f_img, [2] = BN6f_path, [3] = "BN6 Falzar"}}
+
+	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = "EXE6 Gregar"},
+			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = "EXE6 Falzar"}}
+
+	--define the order of the main table
+	item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
+
+
+	y_hist = {}
+	local pos_tbl = {}
+	pos_tbl = SQL.readcommand("SELECT pos_x, pos_y FROM pos;")
+	for i=0, #item do
+		if pos_tbl["pos_x "..i] then
+			y_hist[tonumber(pos_tbl["pos_x "..i])] = tonumber(pos_tbl["pos_y "..i])
+		end
+	end
+--	print(y_hist)
+
+	if config[last_pos_x] then
+		pos_x = tonumber(config[last_pos_x])
+	else
+		pos_x = 1
+	end
+	if y_hist[pos_x] then
+		pos_y = tonumber(y_hist[pos_x])
+	else
+		pos_y = 1
+	end
+
+
+local function drawArrow(direction, arrow_timer, arrow_offset, arr_x, arr_y)
+	local frame = arrow_timer
+	local offset = arrow_offset
+
+	local iserror = nil
+	if type(direction) ~= 'number' then
+		iserror = true
+	elseif direction < 0 or direction > 3 then
+		iserror = true
+	end
+	if iserror then
+		if not drawArrowPrintedError then
+			drawArrowPrintedError = true
+			print('"direction" argument for drawArrow() must be an int value between 0-3')
+		end
+		return
+	end
+
+	local direc = math.floor(direction)
+	
+	if not frame then 
+		frame = 0 
+	end
+	if not offset then
+		if direc == 1 or direc == 3 then
+			offset = -1
+		else
+			offset = 1
+		end
+	end
+
+	frame = frame + 1
+	if frame > 10 then
+		frame = 0
+		offset = -1 * offset
+	end
+	local arrow = nil
+	local xoff = 0
+	local yoff = 0
+
+
+	if direc < 2 then
+		yoff = offset
+	else
+		xoff = offset
+	end
+
+	local size = arrow_size
+	gui.drawImageRegion(arrows, size * direc, 0, size, size, arr_x - size/2 + xoff, arr_y + yoff + size/2)
+	return frame, offset
+end
+
+--mainmenu functions defined here
+	local function mm_acceptbutton()
+		if choice_anim or launch_anim then return end
+		p_pos_x = pos_x
+		p_pos_y = pos_y
+	
+		if c_r_A then
+			launch_anim = true
+	
+		elseif c_r_Start then
+			scene = scene + 1
+	
+		elseif c_p_Left or c_h_Left then
+			if pos_x == 1 then
+				pos_x = #item
+			else
+				pos_x = pos_x - 1
+			end
+	
+		elseif c_p_Right or c_h_Right then
+			if pos_x == #item then
+				pos_x = 1
+			else
+				pos_x = pos_x + 1
+			end
+	
+		elseif c_p_Up and item[pos_x][2] then
+			if item[pos_x][pos_y+1] then
+				pos_y = pos_y + 1
+			else
+				pos_y = 1
+			end
+	
+		elseif c_p_Down and item[pos_x][2] then
+			if item[pos_x][pos_y-1] then
+				pos_y = pos_y - 1
+			else
+				pos_y = #item[pos_x]
+			end
+		end
+	
+	
+		if (pos_x ~= p_pos_x) then
+			choice_anim = true
+			--populate a table entry with a record of the y position before switching x positions
+			y_hist[p_pos_x] = pos_y
+			if y_hist[pos_x] then 
+				pos_y = y_hist[pos_x]
+			else
+				pos_y = 1
+			end
+		elseif (pos_y ~= p_pos_y) then
+			choice_anim = true
+		else
+			choice_anim = nil
+			gui.drawImage(item[pos_x][pos_y][1],0,0)
+			--gui.drawText(x_max/2, 159, item[pos_x][pos_y][3], "white", nil, nil, nil, "middle","bottom")
+			if item[pos_x][2] then
+				--animate the arrow that prompts for vertical dpad presses when applicable
+				mm_ab_arrow1, mm_ab_arroff1 = drawArrow(1, mm_ab_arrow1, mm_ab_arroff1, x_max/2, 129)
+			end
+		end
+	end
+	
+	local function mm_change_title()
+		if not choice_anim then return end
+		if not ct_f then ct_f = 0 end
+	
+		local v,vx,vy,x,y
+		local dur = 8
+		local int = x_max / dur
+	
+		ct_f = ct_f + 1
+	
+		local function anim(cur,prev)
+			if prev > cur then
+				v = 1
+			else
+				v = -1
+			end
+			if math.abs(cur - prev) ~= 1 then
+				v = -1*v
+			end
+			local xyz = (int * ct_f) * v
+			return xyz, v
+		end
+	
+		if pos_x ~= p_pos_x then
+			x,vx = anim(pos_x,p_pos_x)
+			y,vy = 0,0
+		else
+			x,vx = 0,0
+			y = (int * ct_f) * (-1)
+			vy = -1
+		end
+	
+		if config[reduce_movement] == "false" then
+			gui.drawImage(item[p_pos_x][p_pos_y][1],0 + x, 0 - y)
+			gui.drawImage(item[pos_x][pos_y][1],(-vx * x_max) + x, (-vy * x_max) + y)
+		else
+			dur = 15
+			gui.drawImage(item[pos_x][pos_y][1], 0, 0)
+		end
+	
+		if ct_f >= dur then
+			ct_f = nil
+			choice_anim = nil
+		end
+	
+		return ct_f
+	end
+	
+	local function mm_launch_title()
+		if not launch_anim then return end
+		if not lt_f then lt_f = 0 end
+		lt_f = lt_f + 1
+	
+		local int
+		local dur = 8
+		local x_int = x_max * 0.5 / dur
+		local y_int = y_max * 0.5 / dur
+	
+		if lt_f > dur/2 then
+			int = (dur - lt_f)/2
+		else
+			int = lt_f
+		end
+	
+		x_int = x_int * int
+		y_int = y_int * int
+		local x = x_max - x_int
+		local y = y_max - y_int
+	
+	
+		if lt_f >= dur then
+			lt_f = nil
+			launch_anim = nil
+	
+			--save the menu position to the config
+			if config[remember_version] == "true" then
+				savepos(pos_x, pos_y)
+			end
+			if config[remember_position] == "true" then
+				saveconfig(last_pos_x, pos_x)
+			end
+	
+			--open the rom
+			choosegame(item[pos_x][pos_y][2], nil)
+			if file_exists(rom_path) == true then
+				opengame(rom_path)
+			end
+		else	
+			gui.drawImage(item[pos_x][pos_y][1],0 + x_int/2,0 + y_int/2, x, y)
+		end
+		return lt_f
+	end
+--end of mainmenu functions
+
+local function mainmenu()
+	local x = emu.getsystemid()
+	if x ~= "NULL" then 
+		local y = gameinfo.getromname()
+		if y ~= "voidrom" then
+			return
+		end
+	end
+	proc_ctrl()
+
+	mm_acceptbutton()
+	ct_f = mm_change_title()
+	lt_f = mm_launch_title()
+
+	gui.drawImage(nameplate,0,0)
+	gui.drawImage(footer,0,0)
+	gui.drawImage(tooltips,0,0)
+
+	gui.drawText(120, 22, playername, nil, nil, 16, "Calibri",nil, "middle","bottom")
+
+
+	--gui.drawText(120, 30, "yeehaw", "white", nil, nil, nil, "middle","top")
+end
+
+
+--settingsmenu functions defined here
+	local function sm_init_settings()
+		local l = config[language]
+
+		--setting names
+		username_name = {
+		["ENG"] = "Change Name", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		language_name = {
+		["ENG"] = "Language", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		use_translation_patches_name = {
+		["ENG"] = "Use Translation Patches", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		reduce_movement_name = {
+		["ENG"] = "Reduce Movement", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		remember_position_name = {
+		["ENG"] = "Remember Position", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		remember_version_name = {
+		["ENG"] = "Remember Game Version", 
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+	
+		--descriptions
+		username_desc = {
+		["ENG"] = "Other netbattlers will see your \nname when you play online",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		language_desc = {
+		["ENG"] = "Change the language used by \nthe netplay interface",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		use_translation_patches_desc = {
+		["ENG"] = "Automatically apply translation \npatches based on your language \npreference (when available)",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		reduce_movement_desc = {
+		["ENG"] = "Disable the sliding animation \nwhen moving through the game \nselection screen",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		remember_position_desc = {
+		["ENG"] = "Remember and return to your \nlast position in the game \nselection screen",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+		remember_version_desc = {
+		["ENG"] = "Remember the last selected \nversion for each game",
+		["ESP"] = "", 
+		["JP"] = ""
+		}
+
+		--options
+		-- "checkmark" , "flag", or "function"
+		username_opt = {"function", {nil} }
+		language_opt = {"flag" , {"ENG", "ESP", "JP"}}
+		bool_opt = {"checkmark", {"true", "false"}}
+	
+	
+		settings = {
+			{username_name[l], username, username_opt, username_desc[l]},
+			{language_name[l], language, language_opt, language_desc[l]},
+			{use_translation_patches_name[l], use_translation_patches, bool_opt, use_translation_patches_desc[l]},
+			{reduce_movement_name[l], reduce_movement, bool_opt, reduce_movement_desc[l]},
+			{remember_position_name[l], remember_position, bool_opt, remember_position_desc[l]},
+			{remember_version_name[l], remember_version, bool_opt, remember_version_desc[l]}
+		}
+	
+		visible_settings = 5
+	
+	end
+	sm_init_settings()
+	
+	
+	local function sm_showicon(pointer, smx_off, smy_off)
+		local opt_type = settings[pointer][3][1]
+		local current = config[settings[pointer][2]]
+		local xoff = 0
+		local yoff = 0
+		if opt_type == "checkmark" then
+			if current == "true" then
+				yoff= 1
+				
+			elseif current == "false" then
+				yoff = 0
+	
+			else
+				return
+			end
+			gui.drawImageRegion(checkmark, 0, yoff*10, 10, 10, smx_off, 3 + smy_off)
+	
+		elseif opt_type == "flag" then
+			if pointer == smpos_y then
+				xoff = 1
+			else
+				xoff = 0
+			end
+			if current == settings[pointer][3][2][1] then
+				yoff = 0
+			elseif current == settings[pointer][3][2][2] then
+				yoff = 1
+			elseif current == settings[pointer][3][2][3] then
+				yoff = 2
+			else
+				return
+			end
+			gui.drawImageRegion(flags, xoff*15, yoff*9, 15, 9, smx_off - 2, 3 + smy_off)
+	
+		elseif opt_type == "function" then
+	
+		else
+			return
+		end
+	
+	end
+	
+	
+	local function sm_changesetting(pointer)
+		local opt_type = settings[pointer][3][1]
+		local current = config[settings[pointer][2]]
+	
+		if opt_type == "checkmark" then
+			if current == "true" then
+				saveconfig(settings[pointer][2], "false")
+			elseif current == "false" then
+				saveconfig(settings[pointer][2], "true")
+			else
+				return
+			end
+	
+		elseif opt_type == "flag" then
+	
+			if current == "ENG" then
+				saveconfig(settings[pointer][2], settings[pointer][3][2][2])
+	
+			elseif current == "ESP" then
+				saveconfig(settings[pointer][2], settings[pointer][3][2][3])
+	
+			elseif current == "JP" then
+				saveconfig(settings[pointer][2], settings[pointer][3][2][1])
+	
+			else
+				saveconfig(settings[pointer][2], settings[pointer][3][2][1])
+			end
+			sm_init_settings()
+	
+		elseif opt_type == "function" then
+	
+		else
+			return
+		end
+	end
+	
+	
+	local function sm_acceptbutton()
+		if press_delay then return end
+		if not smpos_y then smpos_y = 1 end
+		if not smpos_x then smpos_x = 1 end
+		if not listpos then listpos = 1 end
+		p_smpos_y = smpos_y 
+		p_smpos_x = smpos_x
+		press_delay = 6
+	
+		if c_r_A then
+			--toggle setting
+			sm_changesetting(smpos_y)
+	
+		elseif c_r_Start or c_r_B then
+			scene = scene - 1
+			smpos_y = 1
+			smpos_x = 1
+			listpos = 1
+	
+		elseif c_p_Up or c_h_Up then
+			if settings[smpos_y-1] then
+				smpos_y = smpos_y - 1
+	
+				if listpos > 1 then
+					listpos = listpos - 1
+				end
+			end
+		elseif c_p_Down or c_h_Down then
+			if settings[smpos_y+1] then
+				smpos_y = smpos_y + 1
+	
+				if listpos < visible_settings then
+					listpos = listpos + 1
+				end
+			end
+		elseif c_p_Left then
+	
+		elseif c_p_Right then
+	
+		end
+	
+	
+		if (smpos_y ~= p_smpos_y) then
+			--moved vertically
+		elseif (smpos_x ~= p_smpos_x) then
+			--moved horizontally
+		elseif c_r_A then
+			--just here so press_delay gets set
+		else
+			--a place for idle things
+			press_delay = nil
+		end
+	end
+	
+	local function sm_sm_pos(sm_sm_v)
+		local value = (sm_sm_v*18) -7
+		return value
+	end
+	
+	local function sm_showmenu()
+		if not listpos then listpos = 1 end
+
+		for i=1, visible_settings do
+			local offset = smpos_y + (i - listpos)
+			if settings[offset] then
+				local indent = 0
+				if i == listpos then indent = 5 end
+				gui.drawText(40+indent, sm_sm_pos(i), settings[offset][1],nil,nil,12, "Arial")
+				sm_showicon(offset, 25+indent, sm_sm_pos(i))
+			end
+			--draw arrows when a setting is out of view
+			if i == 1 and settings[offset-1] then
+				--draw the up arrow
+				sm_sm_arrow2, sm_sm_arroff2 = drawArrow(0, sm_sm_arrow2, sm_sm_arroff2, x_max/2, -5)
+			end
+			if i == visible_settings and settings[offset+1] then
+				--draw the down arrow
+				sm_sm_arrow1, sm_sm_arroff1 = drawArrow(1, sm_sm_arrow1, sm_sm_arroff1, x_max/2, sm_sm_pos(visible_settings + 1))
+			end
+		end
+
+		--draw the arrow that shows which setting is currently selected
+		--gui.drawImage(arrow_right, 10, sm_sm_pos(listpos) + 2)
+		sm_sm_arrow3, sm_sm_arroff3 = drawArrow(3, sm_sm_arrow3, sm_sm_arroff3, 10, sm_sm_pos(listpos) + 0)
+	
+		--display the description of the currently selected setting
+		local description = settings[smpos_y][4]
+		gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
+		gui.drawImage(settings_footer, 0, 0)
+
+		
+		if press_delay then
+			press_delay = press_delay - 1
+			if press_delay < 1 then
+				press_delay = nil
+			end
+		end
+	end
+--end of settingsmenu functions
+
+
+local function settingsmenu()
+	local x = emu.getsystemid()
+	if x ~= "NULL" then 
+		local y = gameinfo.getromname()
+		if y ~= "voidrom" then
+			return
+		end
+	end
+	proc_ctrl()
+	sm_acceptbutton()
+	if scene ~= 2 then return end
+
+	sm_showmenu()
+
+end
 
 
 -- Main Loop
 while true do
+
+
+	if scene == 1 then
+		mainmenu()
+	elseif scene == 2 then
+		settingsmenu()
+	else
+		scene = 1
+	end
+
 
 
 	if src_rom then
@@ -120,14 +875,13 @@ while true do
 		newform()
 	end
 
-
 	if rom_path then
 		if file_exists(rom_path) == true then
 			opengame(rom_path)
 		else
 			emu.frameadvance()
 		end
-		newform()
+		--newform()
 	end
 
 	emu.frameadvance()
