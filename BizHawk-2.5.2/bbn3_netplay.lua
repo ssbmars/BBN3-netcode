@@ -39,7 +39,7 @@
 	SOFTWARE.
 	
 	--------
---]]
+  ]]
 
 
 socket = require("socket.core")
@@ -449,7 +449,7 @@ resetnet()
 local function resetstate()
 	--define variables that we might adjust sometimes
 
-	BufferVal = 1		--input lag value in frames
+	BufferVal = 3		--input lag value in frames
 	debugmessages = 1	--toggle whether to print debug messages
 	saferollback = 15
 	delaybattletimer = 30
