@@ -2,6 +2,26 @@ socket = require("socket.core")
 client.displaymessages(false)
 
 
+--JP text converter code
+	--UTF8 -> Shift-JIS library sourced from AoiSaya, licensed under MIT
+	--https://github.com/AoiSaya/FlashAir_UTF8toSJIS
+	local UTF8toSJIS = require("UTF8toSjis/UTF8toSJIS")
+	local UTF8SJIS_table = "UTF8toSjis/Utf8Sjis.tbl"
+
+	local function init_tojp()
+		fht = io.open(UTF8SJIS_table, "r")
+	end
+	local function close_tojp()
+		fht:close()
+	end
+	local function tojp(str)
+		if not altjpfix then return str end
+		local strSJIS = UTF8toSJIS:UTF8_to_SJIS_str_cnv(fht, str)
+		return strSJIS
+	end
+--end of JP text converter code
+
+
 --TO DO: verify specific ROM hash, both for vanilla files and patch files. This should be very helpful for smooth operation
 local function file_exists(name)
    local f=io.open(name,"r")
@@ -136,6 +156,8 @@ local function configdefaults()
 		remember_version = "remember_version"
 		last_pos_x = "last_pos_x"
 
+		altjpfix = nil
+
 		config_keys = {
 			{username, "NetBattler"}, 
 			{language, "ENG"}, 
@@ -144,7 +166,6 @@ local function configdefaults()
 			{remember_position, "true"},
 			{remember_version, "true"},
 			{last_pos_x, 1}}
-
 end
 configdefaults()
 
@@ -287,13 +308,9 @@ end
 	settings_footer = "gui_Sprites\\menu\\settings_footer.png"
 	checkmark = "gui_Sprites\\menu\\checkmark.png"
 	flags = "gui_Sprites\\menu\\flags.png"
-
 	arrows = "gui_Sprites\\menu\\arrows.png"
-	arrow_up = "gui_Sprites\\menu\\arrow_up.png"
-	arrow_down = "gui_Sprites\\menu\\arrow_down.png"
-	arrow_left = "gui_Sprites\\menu\\arrow_left.png"
-	arrow_right = "gui_Sprites\\menu\\arrow_right.png"
 	arrow_size = 9
+
 
 	playername = config[username]
 
@@ -569,77 +586,94 @@ end
 
 
 --settingsmenu functions defined here
+	--German translations provided by Zulleyy3
+	--Japanese translations provided by exe_race
+
 	local function sm_init_settings()
 		local l = config[language]
-
+		init_tojp()
 		--setting names
 		username_name = {
 		["ENG"] = "Change Name", 
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("名前の変更"),
+		["GER"] = "Charakternamen ändern"
 		}
 		language_name = {
 		["ENG"] = "Language", 
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("言語"),
+		["GER"] = "Overlay-Sprache"
 		}
 		use_translation_patches_name = {
 		["ENG"] = "Use Translation Patches", 
-		["ESP"] = "", 
-		["JP"] = ""
+		["ESP"] = "á é í ó ú ü ñ ¿", 
+		["JP"] = tojp("翻訳パッチの使用"),
+		["GER"] = "(EN) Übersetzung anwenden"
 		}
 		reduce_movement_name = {
-		["ENG"] = "Reduce Movement", 
-		["ESP"] = "", 
-		["JP"] = ""
+		["ENG"] = "Disable Menu Animations", 
+		["ESP"] = "Á É Í Ó Ú Ü Ñ ¡", 
+		["JP"] = tojp("スライドアニメーション"),
+		["GER"] = "Menüanimationen deaktivieren" 
 		}
 		remember_position_name = {
 		["ENG"] = "Remember Position", 
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("最後にプレイしたゲームの保存"),
+		["GER"] = "Letzte Menüposition speichern"
 		}
 		remember_version_name = {
 		["ENG"] = "Remember Game Version", 
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("最後にプレイしたバージョンの保存"),
+		["GER"] = "Letzte Spielversion speichern"
 		}
 	
 		--descriptions
 		username_desc = {
 		["ENG"] = "Other netbattlers will see your \nname when you play online",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("ネット対戦時、対戦相手に表示される\n名前です"),
+		["GER"] = "Andere Spieler werden deinen Namen \nsehen, wenn du gegen sie online spielst."
 		}
 		language_desc = {
 		["ENG"] = "Change the language used by \nthe netplay interface",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("UIの言語を変更します"),
+		["GER"] = "Ändere die Sprache, die in der \nNetplay Oberfläche benutzt wird."
 		}
 		use_translation_patches_desc = {
 		["ENG"] = "Automatically apply translation \npatches based on your language \npreference (when available)",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("設定した言語に従って、自動的\nに翻訳パッチを適用します"),
+		["GER"] = "Wende (falls verfügbar) automatisch\neine englische Übersetzung auf das\nSpiel an"
 		}
 		reduce_movement_desc = {
 		["ENG"] = "Disable the sliding animation \nwhen moving through the game \nselection screen",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("ゲーム選択時のスライドアニメーション\nをオフにします"),
+		["GER"] = "Deaktiviere die Animationen bei\nNavigation des Auswahlbildschirms."
 		}
 		remember_position_desc = {
 		["ENG"] = "Remember and return to your \nlast position in the game \nselection screen",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("最後に選択したゲームを記憶します"),
+		["GER"] = "Merke und lade die letzte Position\nim Spielauswahlbildschirm."
 		}
 		remember_version_desc = {
 		["ENG"] = "Remember the last selected \nversion for each game",
 		["ESP"] = "", 
-		["JP"] = ""
+		["JP"] = tojp("最後に選択したバージョンを記憶します"),
+		["GER"] = "Merke die letzte ausgewählte\nVersion per Spiel."
 		}
+
+		close_tojp()
 
 		--options
 		-- "checkmark" , "flag", or "function"
 		username_opt = {"function", {nil} }
-		language_opt = {"flag" , {"ENG", "ESP", "JP"}}
+		language_opt = {"flag" , {"ENG", "ESP", "JP", "GER"}}
 		bool_opt = {"checkmark", {"true", "false"}}
 	
 	
@@ -681,14 +715,12 @@ end
 			else
 				xoff = 0
 			end
-			if current == settings[pointer][3][2][1] then
-				yoff = 0
-			elseif current == settings[pointer][3][2][2] then
-				yoff = 1
-			elseif current == settings[pointer][3][2][3] then
-				yoff = 2
-			else
-				return
+			
+			for i=1, #settings[pointer][3][2] do
+				if current == settings[pointer][3][2][i] then
+					yoff = i - 1
+					break
+				end
 			end
 			gui.drawImageRegion(flags, xoff*15, yoff*9, 15, 9, smx_off - 2, 3 + smy_off)
 	
@@ -711,23 +743,23 @@ end
 			elseif current == "false" then
 				saveconfig(settings[pointer][2], "true")
 			else
-				return
+				saveconfig(settings[pointer][2], "false")
 			end
 	
 		elseif opt_type == "flag" then
-	
-			if current == "ENG" then
-				saveconfig(settings[pointer][2], settings[pointer][3][2][2])
-	
-			elseif current == "ESP" then
-				saveconfig(settings[pointer][2], settings[pointer][3][2][3])
-	
-			elseif current == "JP" then
-				saveconfig(settings[pointer][2], settings[pointer][3][2][1])
-	
-			else
-				saveconfig(settings[pointer][2], settings[pointer][3][2][1])
+			local limit = #settings[pointer][3][2]
+			for i=1, limit do
+				if current == settings[pointer][3][2][i] then
+					--increment up by 1, or loop back to 1 if at the max value
+					if i == limit then
+						saveconfig(settings[pointer][2], settings[pointer][3][2][1])
+					else
+						saveconfig(settings[pointer][2], settings[pointer][3][2][i+1])
+					end
+					break
+				end
 			end
+
 			sm_init_settings()
 	
 		elseif opt_type == "function" then
@@ -805,7 +837,9 @@ end
 			if settings[offset] then
 				local indent = 0
 				if i == listpos then indent = 5 end
-				gui.drawText(40+indent, sm_sm_pos(i), settings[offset][1],nil,nil,12, "Arial")
+				if settings[offset] then
+					gui.drawText(40+indent, sm_sm_pos(i), settings[offset][1],nil,nil,12, "Arial")
+				end
 				sm_showicon(offset, 25+indent, sm_sm_pos(i))
 			end
 			--draw arrows when a setting is out of view
@@ -825,7 +859,17 @@ end
 	
 		--display the description of the currently selected setting
 		local description = settings[smpos_y][4]
-		gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
+		-- debug option to show where the best places to insert newlines are
+			local middle = 1
+			if middle == 1 then
+				descdraw_x = x_max/2
+				descdraw_origin = "middle"
+			else
+				descdraw_x = 10
+				descdraw_origin = "left"
+			end
+		--end of debug stuff
+		gui.drawText(descdraw_x, 115, description,nil,nil,12, "Arial", nil, descdraw_origin,"top")
 		gui.drawImage(settings_footer, 0, 0)
 
 		
