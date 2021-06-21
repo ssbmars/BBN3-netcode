@@ -24,17 +24,30 @@ client.displaymessages(false)
 
 --TO DO: verify specific ROM hash, both for vanilla files and patch files. This should be very helpful for smooth operation
 local function file_exists(name)
-   local f=io.open(name,"r")
-   if f~=nil then io.close(f) return true else return false end
+	if not name then 
+		print("received nil argument for file_exists func")
+		return false
+	end
+	--print("file_exists("..name..")")
+	local f=io.open(name,"r")
+	if f~=nil then io.close(f) return true else return false end
 end
 
 local function write_file(filename, path)
+	if not filename or not path then
+		print("missing arg for write_file func")
+		return
+	end
 	local file = io.open(filename, "w")
 	file:write(path)
 	file:close()
 end
 
 local function read_file(filename)
+	if not filename then
+		print("missing arg for read_file func")
+		return
+	end
 	local f = assert(io.open(filename, "rb"))
 	local content = f:read("*all")
 	f:close()
@@ -42,6 +55,10 @@ local function read_file(filename)
 end
 
 local function opengame(path)
+	if not path then 
+		print("missing arg for opengame func")
+		return
+	end
 	if userdata.get("last_openrom_path") == path then
 		userdata.remove("last_openrom_path")
 	else
@@ -51,23 +68,36 @@ local function opengame(path)
 	client.openrom(path)
 end
 
-local function choosegame(game, patch)
-		if file_exists(game) == true then --file_exists() can be replaced with something that checks if the ROM md5 is valid
-			rom_path = game
-			forms.destroyall()
-			formopen = nil
-		else
-			src_rom = forms.openfile()
-			bat_path = patch
-			if not(src_rom == nil or src_rom == "") then
-				forms.destroyall()
-				formopen = nil
-			end
+
+local function applypatch()
+
+	if src_rom and bat_path then
+		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
+	else
+		if not src_rom then
+			print("src_rom arg is missing for applypatch func")
 		end
+		if not bat_path then
+			print("bat_path arg is missing for applypatch func")
+		end
+	end
+end
+
+
+local function choosegame(game, patch)
+	if file_exists(game) then --can be replaced with something that checks if the ROM md5 is valid (or check both)
+		rom_path = game
+		--forms.destroyall()
+		--formopen = nil
+	else
+		bat_path = patch
+		file_prompt = true
+	end
 end
 
 
 void_path = "Netplay\\voidrom.gba"
+
 BBN3_path = "Netplay\\BBN3 Online.gba"
 BBN3_bat = '".\\patches\\patch BBN3.bat"'
 
@@ -76,6 +106,13 @@ BN6f_bat = '".\\patches\\patch BN6f.bat"'
 
 BN6g_path = "Netplay\\BN6 Gregar Online.gba"
 BN6g_bat = '".\\patches\\patch BN6g.bat"'
+
+EXE6g_path = "Netplay\\EXE6 Gregar Online.gba"
+EXE6g_bat = '".\\patches\\patch EXE6g.bat"'
+
+EXE6f_path = "Netplay\\EXE6 Falzar Online.gba"
+EXE6f_bat = '".\\patches\\patch EXE6f.bat"'
+
 
 GoldenSun = "BBN3\\notbbn3.gba"
 
@@ -316,16 +353,17 @@ end
 
 
 	--define the granular values in a different table for each game, then place those tables into a main table
-	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = "BBN3"}}
+	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = BBN3_bat, [4] = "BBN3", [5] = "BN3 Blue (English)"}}
 
-	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = "BN6 Gregar"},
-			{[1] = BN6f_img, [2] = BN6f_path, [3] = "BN6 Falzar"}}
+	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = BN6g_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)"},
+			{[1] = BN6f_img, [2] = BN6f_path, [3] = BN6f_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)"}}
 
-	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = "EXE6 Gregar"},
-			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = "EXE6 Falzar"}}
+	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = EXE6g_bat, [4] = "EXE6 Gregar", [5] = "EXE6 Gregar (Japanese)"},
+			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
 
 	--define the order of the main table
-	item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
+	--item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
+	item = {[1] = BBN3}
 
 
 	y_hist = {}
@@ -404,7 +442,7 @@ end
 
 --mainmenu functions defined here
 	local function mm_acceptbutton()
-		if choice_anim or launch_anim then return end
+		if choice_anim or launch_anim or file_prompt then return end
 		p_pos_x = pos_x
 		p_pos_y = pos_y
 	
@@ -549,8 +587,8 @@ end
 			end
 	
 			--open the rom
-			choosegame(item[pos_x][pos_y][2], nil)
-			if file_exists(rom_path) == true then
+			choosegame(item[pos_x][pos_y][2], item[pos_x][pos_y][3])
+			if rom_path and file_exists(rom_path) == true then
 				opengame(rom_path)
 			end
 		else	
@@ -558,6 +596,43 @@ end
 		end
 		return lt_f
 	end
+
+	local function mm_find_rom()
+		if not file_prompt then return end
+		if not fr_f then fr_f = 0 end
+		fr_f = fr_f + 1
+	
+		if item[pos_x][pos_y][5] and type(item[pos_x][pos_y][5]) == 'string' then 
+			mm_fr_romname = item[pos_x][pos_y][5]
+		else
+			mm_fr_romname = "the rom"
+		end
+	
+		gui.drawText(x_max/2, 30, "Please locate a clean copy of", nil,nil, 12,"Arial", nil, "middle")
+		gui.drawText(x_max/2, 50, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+		--gui.drawText(x_max/2, 75, "• filename doesn't matter \n• must be a .gba file", nil,nil, 12,"Arial", nil, "middle")
+	
+		if fr_f > 60 then
+			gui.drawText(x_max/2, 100, "Press A to continue", nil,nil, 12,"Arial", nil, "middle")
+			if c_r_A then 
+				mm_fr_continue = true
+			end
+		end
+	
+		if mm_fr_continue then
+			file_prompt = nil
+			fr_f = 0
+			--locate rom file and apply patch
+			src_rom = forms.openfile()
+			if not(src_rom == nil or src_rom == "") then
+				applypatch()
+			end
+		end
+	
+		mm_fr_continue = nil
+		return fr_f
+	end
+
 --end of mainmenu functions
 
 local function mainmenu()
@@ -573,6 +648,7 @@ local function mainmenu()
 	mm_acceptbutton()
 	ct_f = mm_change_title()
 	lt_f = mm_launch_title()
+	fr_f = mm_find_rom()
 
 	gui.drawImage(nameplate,0,0)
 	gui.drawImage(footer,0,0)
@@ -588,6 +664,7 @@ end
 --settingsmenu functions defined here
 	--German translations provided by Zulleyy3
 	--Japanese translations provided by exe_race
+	--Spanish translations provided by 
 
 	local function sm_init_settings()
 		local l = config[language]
@@ -595,37 +672,37 @@ end
 		--setting names
 		username_name = {
 		["ENG"] = "Change Name", 
-		["ESP"] = "", 
+		["ESP"] = "Cambiar Nombre", 
 		["JP"] = tojp("名前の変更"),
 		["GER"] = "Charakternamen ändern"
 		}
 		language_name = {
 		["ENG"] = "Language", 
-		["ESP"] = "", 
+		["ESP"] = "Idioma", 
 		["JP"] = tojp("言語"),
 		["GER"] = "Overlay-Sprache"
 		}
 		use_translation_patches_name = {
 		["ENG"] = "Use Translation Patches", 
-		["ESP"] = "á é í ó ú ü ñ ¿", 
+		["ESP"] = "Usar Parches de traducción", 
 		["JP"] = tojp("翻訳パッチの使用"),
 		["GER"] = "(EN) Übersetzung anwenden"
 		}
 		reduce_movement_name = {
 		["ENG"] = "Disable Menu Animations", 
-		["ESP"] = "Á É Í Ó Ú Ü Ñ ¡", 
+		["ESP"] = "Desactivar animaciones del menú", 
 		["JP"] = tojp("スライドアニメーション"),
 		["GER"] = "Menüanimationen deaktivieren" 
 		}
 		remember_position_name = {
 		["ENG"] = "Remember Position", 
-		["ESP"] = "", 
+		["ESP"] = "Mantener Posición", 
 		["JP"] = tojp("最後にプレイしたゲームの保存"),
 		["GER"] = "Letzte Menüposition speichern"
 		}
 		remember_version_name = {
 		["ENG"] = "Remember Game Version", 
-		["ESP"] = "", 
+		["ESP"] = "Recordar Versión del Juego", 
 		["JP"] = tojp("最後にプレイしたバージョンの保存"),
 		["GER"] = "Letzte Spielversion speichern"
 		}
@@ -633,37 +710,37 @@ end
 		--descriptions
 		username_desc = {
 		["ENG"] = "Other netbattlers will see your \nname when you play online",
-		["ESP"] = "", 
+		["ESP"] = "Otros netbattlers verán tu nombre \ncuando juegues en línea", 
 		["JP"] = tojp("ネット対戦時、対戦相手に表示される\n名前です"),
 		["GER"] = "Andere Spieler werden deinen Namen \nsehen, wenn du gegen sie online spielst."
 		}
 		language_desc = {
 		["ENG"] = "Change the language used by \nthe netplay interface",
-		["ESP"] = "", 
+		["ESP"] = "Cambia el lenguaje utilizado \npor la interfaz del juego",
 		["JP"] = tojp("UIの言語を変更します"),
 		["GER"] = "Ändere die Sprache, die in der \nNetplay Oberfläche benutzt wird."
 		}
 		use_translation_patches_desc = {
 		["ENG"] = "Automatically apply translation \npatches based on your language \npreference (when available)",
-		["ESP"] = "", 
+		["ESP"] = "Aplicar Automáticamente traducción \nde parches basado en tu idioma",
 		["JP"] = tojp("設定した言語に従って、自動的\nに翻訳パッチを適用します"),
 		["GER"] = "Wende (falls verfügbar) automatisch\neine englische Übersetzung auf das\nSpiel an"
 		}
 		reduce_movement_desc = {
 		["ENG"] = "Disable the sliding animation \nwhen moving through the game \nselection screen",
-		["ESP"] = "", 
+		["ESP"] = "Desactivar animación de deslizamiento \ncuando te mueves en la pantalla de \nselección de juego", 
 		["JP"] = tojp("ゲーム選択時のスライドアニメーション\nをオフにします"),
 		["GER"] = "Deaktiviere die Animationen bei\nNavigation des Auswahlbildschirms."
 		}
 		remember_position_desc = {
 		["ENG"] = "Remember and return to your \nlast position in the game \nselection screen",
-		["ESP"] = "", 
+		["ESP"] = "Recordar y regresar a la última posición \nen la pantalla de selección de juego",
 		["JP"] = tojp("最後に選択したゲームを記憶します"),
 		["GER"] = "Merke und lade die letzte Position\nim Spielauswahlbildschirm."
 		}
 		remember_version_desc = {
 		["ENG"] = "Remember the last selected \nversion for each game",
-		["ESP"] = "", 
+		["ESP"] = "Recordar la última versión \nseleccionada para cada juego",
 		["JP"] = tojp("最後に選択したバージョンを記憶します"),
 		["GER"] = "Merke die letzte ausgewählte\nVersion per Spiel."
 		}
@@ -914,19 +991,19 @@ while true do
 
 
 
-	if src_rom then
-		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
-		newform()
-	end
-
-	if rom_path then
-		if file_exists(rom_path) == true then
-			opengame(rom_path)
-		else
-			emu.frameadvance()
-		end
-		--newform()
-	end
+--	if src_rom then
+--		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
+--		newform()
+--	end
+--
+--	if rom_path then
+--		if file_exists(rom_path) == true then
+--			opengame(rom_path)
+--		else
+--			emu.frameadvance()
+--		end
+--		--newform()
+--	end
 
 	emu.frameadvance()
 end
