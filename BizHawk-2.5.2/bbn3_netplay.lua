@@ -473,6 +473,7 @@ local function resetstate()
 	emu.limitframerate(true)
 	framethrottle = true
 	wfp_val = {}
+	wfp_ping = {}
 	pl = {} --payload
 	ft = {}
 	ftt = {}
@@ -497,6 +498,7 @@ local function resetstate()
 	CanWriteRemoteChips = nil
 	lane_time = nil
 	scene_anim = nil
+	cs_sentcount = 0
 	thisispvp = 0
 	waitingforpvp = 0
 	sync_waitingforround = 0
@@ -507,8 +509,11 @@ local function resetstate()
 	save = {}  --savestate ID table
 	FullInputStack = {}  --input stack for rollback frames
 	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
-	
-
+	wfp_client_got = {}
+	wfp_local_got = {}
+	wfp_local_req = nil
+	wfp_remote_got = nil
+	wfp_remote_sent = nil
 	
 	menu = nil
 	serialize = true
@@ -659,10 +664,11 @@ local function receivepackets()
 					if str[1] == "wt2" then --"clock sync wait"
 						wt2 = t 
 						t = {}
+						local timeval = socket.gettime()*10000
 						if #wt2 == 1 then
-							wfp_client_got = math.floor((socket.gettime()*10000) % timecutoff)
+							table.insert(wfp_client_got, #wfp_client_got+1, timeval)
 						elseif #wt2 == 2 then
-							wfp_local_got = math.floor((socket.gettime()*10000) % timecutoff)
+							table.insert(wfp_local_got, #wfp_local_got+1, timeval)
 						end
 					end
 					if str[1] == "wt3" then --"battle_vis"
@@ -718,7 +724,7 @@ local function receivepackets()
 			timedout = timedout + 1
 			if timedout >= 3*(memory.read_u8(InputBufferRemote) + saferollback) then
 				--	emu.yield()
-				if timedout >= 60*7 then
+				if timedout >= 60*7 and waitingforpvp == 0 then
 					connected = nil
 					acked = nil
 					break
@@ -814,6 +820,7 @@ local function Battle_Vis()
 	end
 
 	--start of time syncing code
+	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 		if clock_dif and not(SB_sent_packet) then
 			SB_sent_packet = true
 			tinywait()
@@ -839,7 +846,7 @@ local function Battle_Vis()
 				local FID = tostring(frametime)
 				table.insert(ftt, 1, FID)
 				ft[FID] = {{},{},{}}
-				ft[FID][3][1] = FID
+				ft[FID][3][1] = socket.gettime()*10000
 				ft[FID][3][2] = tostring(waittime)
 				
 				-- Waiting for PVP Packet
@@ -856,8 +863,8 @@ local function Battle_Vis()
 		if clock_dif and SB_Received and not(SB_Received_2) and #wt4 ~= 0 then
 			SB_Received_2 = true
 			--accommodate latency between the time packet was sent and received
-			local currentFrameTime = getframetime()
-			local FrameTimeDif = math.abs(math.floor(((currentFrameTime - wt4[1]) % timecutoff) + clock_dif))
+			local currentFrameTime = socket.gettime()*10000
+			local FrameTimeDif = math.abs(currentFrameTime + clock_dif - wt4[1])
 			local WholeFrames = math.floor(FrameTimeDif/TargetFrame)
 			local remainder = FrameTimeDif - (WholeFrames*TargetFrame)
 			local adj_CntDn = wt4[2] - WholeFrames
@@ -1040,7 +1047,8 @@ local function PreBattleLoop()
 		if TempTargetSpeed > 0 and TempTargetSpeed < 1000 then
 			client.speedmode(TempTargetSpeed)
 		else
-			client.speedmode(1000)
+			TempTargetSpeed = 1000
+			client.speedmode(TempTargetSpeed)
 		end
 	else
 		client.speedmode(TargetSpeed)
@@ -1210,7 +1218,7 @@ local function custsynchro()
 				table.insert(ftt, 1, FID)
 				ft[FID] = {{},{},{}}
 				--data for only the host to send
-				ft[FID][3][1] = FID
+				ft[FID][3][1] = socket.gettime()*10000
 				ft[FID][3][2] = tostring(waittime)
 				ft[FID][3][3] = tostring(memory.read_u32_le(0x02009800)) -- Battle RNG
 				ft[FID][3][4] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
@@ -1227,8 +1235,8 @@ local function custsynchro()
 		if sync_AllCustomizingFinished and not(sync_TurnCountDown) and #h == 4 then
 			--debug("got host data")
 			--accommodate latency between the time packet was sent and received
-			local currentFrameTime = getframetime()
-			local FrameTimeDif = math.floor((currentFrameTime - h[1] + clock_dif) % timecutoff)
+			local currentFrameTime = socket.gettime()*10000
+			local FrameTimeDif = math.abs(currentFrameTime - h[1] + clock_dif)
 			local WholeFrames = math.floor(FrameTimeDif/TargetFrame)
 			local remainder = FrameTimeDif - (WholeFrames*TargetFrame)
 
@@ -1280,12 +1288,17 @@ local function WaitForPvP()
 			delaybattletimer = 30
 			ypos_bigpet = 45
 			yoffset_bigpet = 120
+			connect_delay = 30
 		end
 		thisispvp = 1
 		prevsockettime = nil
 		fs_timerift = 0
 
-		if opponent ~= nil and connected then
+		if connect_delay > 0 then
+			connect_delay = connect_delay - 1
+		end
+
+		if opponent ~= nil and connected and connect_delay == 0 then
 			tinywait()
 			local frametime = getframetime()
 			local FID = tostring(frametime)
@@ -1299,9 +1312,11 @@ local function WaitForPvP()
 			opponent:send(send_payload)
 			pl[FID] = send_payload
 
+			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 		end
 
-		if #wt == 0 then
+
+		if #wt == 0 or connect_delay > 0 then
 			memory.writebyte(SceneIndicator,0x4)
 			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
 			gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
@@ -1352,7 +1367,7 @@ local function ClockSync()
 				opponent:send(send_payload)
 				pl[FID] = send_payload
 
-				wfp_local_req = frametime
+				wfp_local_req = socket.gettime()*10000
 			end
 
 			--loop while waiting to receive the packet from the other player
@@ -1379,16 +1394,30 @@ local function ClockSync()
 
 			--https://en.wikipedia.org/wiki/Network_Time_Protocol
 			--clock synchronization algorithm
-			local abs_offset = (((wfp_remote_got - wfp_local_req) % timecutoff) - ((wfp_local_got - wfp_remote_sent) % timecutoff)) / 2
-			abs_offset = math.floor(abs_offset/10) *10
+
+			local t0 = wfp_local_req
+			local t1 = wfp_remote_got
+			local t2 = wfp_remote_sent
+			local t3 = wfp_local_got[#wfp_val+1]
+
+			-- [(t1 - t0) + (t2 - t3)] /2
+			-- t0 = wfp_local_req , t1 = wfp_remote_got , t2 = wfp_remote_sent , t3 = wfp_local_got
+			-- [(wfp_remote_got - wfp_local_req) + (wfp_remote_sent - wfp_local_got)] /2
+			--local abs_offset = (((wfp_remote_got - wfp_local_req) % timecutoff) - ((wfp_local_got - wfp_remote_sent) % timecutoff)) / 2 --attempted fix for when values reset, didn't work
+			local abs_offset = ( (t1 - t0) + (t2 - t3) ) / 2
+
+			abs_offset = math.floor(abs_offset)		--abs_offset = math.floor(abs_offset/10) *10
+			--print("loop: " .. #wfp_val .. "  #got = " .. #wfp_local_got .. "  clock = " .. abs_offset)
+			--print( "( ("..t1.." - "..t0..") + ("..t2.." - "..t3..") ) / 2 \n= "..abs_offset)
 
 			--roundtrip value currently isn't used, but I'll keep it around just in case. This measures ping
-			local rndtrip = (wfp_local_got - wfp_local_req) - (wfp_remote_sent - wfp_remote_got)
+			local rndtrip = (t3 - t0) - (t2 - t1)
 
 			--table.insert(wfp_val, 1, {abs_offset, rndtrip})
 			table.insert(wfp_val, abs_offset)
+			table.insert(wfp_ping, rndtrip)
 			wfp_local_req = nil
-			wfp_local_got = nil
+			--wfp_local_got = nil
 			wfp_remote_got = nil
 			wfp_remote_sent = nil
 		end
@@ -1404,6 +1433,7 @@ local function ClockSync()
 		while i > 0 do
 			if math.abs(wfp_val[i]) - wfp_sd > math.abs(wfp_mean) then
 				table.remove(wfp_val, i)
+				table.remove(wfp_ping, i)
 			end
 			i = i - 1
 		end
@@ -1414,8 +1444,11 @@ local function ClockSync()
 		--	wfpss = wfpss .. ", " .. x
 		--end
 		--debug(wfpss)
+		local medianping = median(wfp_ping)/2
+		local medianclock = median(wfp_val)
+		print("ping = "..medianping .. "  clock = " .. medianclock)
+		clock_dif = math.floor(medianclock + medianping)
 
-		clock_dif = median(wfp_val)
 		print("clock_dif: "..clock_dif .. "  (median)")
 
 		--this stalls until the frametimes are different enough to not be interpreted as a dupe
@@ -1425,8 +1458,8 @@ local function ClockSync()
 		local FID = tostring(frametime)
 		table.insert(ftt, 1, FID)
 		ft[FID] = {{},{},{}}
-		ft[FID][3][1] = clock_dif
-		ft[FID][3][2] = 0
+		ft[FID][3][1] = medianclock
+		ft[FID][3][2] = medianping
 		ft[FID][3][3] = 0
 		local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|2,3,"..ft[FID][3][3].."|wt2")
 		opponent:send(send_payload)
@@ -1437,13 +1470,14 @@ local function ClockSync()
 		--version for the client
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
-		if #wt2 == 3 and wt2[2] == 0 and wt2[3] == 0  then
-			clock_dif = wt2[1] *(-1)
+		if #wt2 == 3 and wt2[3] == 0  then
+			clock_dif = math.floor(wt2[1] *(-1) + wt2[2] *(-1))
 			wt2 = {}
 			wfp_SyncFinished = true
 		end
 
 		if #wt2 == 1 then
+			cs_sentcount = cs_sentcount +1
 			--step 1: record when the packet was received
 					--trying to put this in a different spot so it's defined sooner
 					--wfp_client_got = math.floor((socket.gettime()*10000) % 0x100000)
@@ -1454,8 +1488,8 @@ local function ClockSync()
 			local FID = tostring(frametime)
 			table.insert(ftt, 1, FID)
 			ft[FID] = {{},{},{}}
-			ft[FID][3][1] = wfp_client_got
-			ft[FID][3][2] = FID
+			ft[FID][3][1] = wfp_client_got[cs_sentcount]
+			ft[FID][3][2] = socket.gettime()*10000
 			local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|wt2")
 			opponent:send(send_payload)
 			pl[FID] = send_payload
@@ -1473,7 +1507,7 @@ local function ClockSync()
 		if clock_dif then
 			print("clock_dif: "..clock_dif)
 			wfp_local_req = nil
-			wfp_local_got = nil
+			--wfp_local_got = nil
 			wfp_remote_got = nil
 			wfp_remote_sent = nil
 		end
@@ -1744,7 +1778,7 @@ local function ApplyRemoteInputs()
 		--There can be so many that it causes performance issues when attempting to write all of them in one frame.
 		--Which can become a bigger problem if so much time has passed that the target input is no longer in the stack.
 		--So for now, it will limit the amount of attempted writes while trying to go fast.
-		if TempTargetSpeed > 100 then	--framethrottle == true then
+		if TempTargetSpeed - TargetSpeed > 50 then	--framethrottle == true then
 			if #c == 0 or NumberSkipped >= #c or NumberSkipped > 20 then break end
 		else
 			if #c == 0 or NumberSkipped >= #c then break end
@@ -1878,7 +1912,7 @@ local function ApplyRemoteInputs()
 		ari_droppedcount = ari_droppedcount + 1
 		--local read_addr = memory.read_u8(InputStackRemote + 0x100)
 		local read_addr = memory.read_u8(InputStackRemote + stacksize*0x10)
-		print(bizstring.hex(read_addr))
+		--print(bizstring.hex(read_addr))
 	end
 	debugdraw(240 - 30, 160 - 12, ari_droppedcount)
 
