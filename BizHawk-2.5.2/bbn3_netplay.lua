@@ -48,14 +48,14 @@ lanes.configure{with_timers = false}
 
 --Lua-Stats by Robin Gertenbach, licensed under MIT
 	--https://github.com/rgertenbach/Lua-Stats
-	local function assertTables(...)
+	function assertTables(...)
 	  for _, t in pairs({...}) do
 	    assert(type(t) == "table", "Argument must be a table")
 	  end
 	end
 	
 	-- checks if a value is in a table as a value or key
-	local function in_table(value, t, key)
+	function in_table(value, t, key)
 	  assert(type(t) == 'table', "The second argument must be a table")
 	  key = key or false
 	  for i, e in pairs(t) do
@@ -67,7 +67,7 @@ lanes.configure{with_timers = false}
 	end
 
 	-- Simple reduce function
-	local function reduce(t, f)
+	function reduce(t, f)
 	  assert(t ~= nil, "No table provided to reduce")
 	  assert(f ~= nil, "No function provided to reduce")
 	  local result
@@ -83,7 +83,7 @@ lanes.configure{with_timers = false}
 	end 
 	
 	-- Concatenates tables and scalars into one list
-	local function unify(...)
+	function unify(...)
 	  local output = {}
 	  for i, element in ipairs({...}) do
 	    if type(element) == 'number' then
@@ -97,21 +97,21 @@ lanes.configure{with_timers = false}
 	  return output
 	end 
 	
-	local function sum(...) 
+	function sum(...) 
 	  return reduce(unify(...), function(a, b) return a + b end)
 	end 
 	
-	local function count(...) 
+	function count(...) 
 	  return #unify(...) 
 	end 
 	
-	local function mean(...) 
+	function mean(...) 
 	  return sum(...) / count(...) 
 	end 
 
 	-- Calculates the quantile
 	-- Currently uses the weighted mean of the two values the position is inbetween
-	local function quantile(t, q)
+	function quantile(t, q)
 	  assert(t ~= nil, "No table provided to quantile")
 	  assert(q >= 0 and q <= 1, "Quantile must be between 0 and 1")
 	  table.sort(t)
@@ -131,7 +131,7 @@ lanes.configure{with_timers = false}
 	end 
 
 	-- Simple map function
-	local function map(t, f, ...)
+	function map(t, f, ...)
 	  assert(t ~= nil, "No table provided to map")
 	  assert(f ~= nil, "No function provided to map")
 	  local output = {}
@@ -142,18 +142,18 @@ lanes.configure{with_timers = false}
 	  return output
 	end 
 	
-	local function sumSquares(...)
+	function sumSquares(...)
 	  local data = unify(...)
 	  local mu = mean(data)
 	
 	  return sum(map(data, function(x) return (x - mu)^2 end))  
 	end 
 	
-	local function varPop(...)
+	function varPop(...)
 	  return sumSquares(...) / count(...)
 	end 
 	
-	local function frequency(t)
+	function frequency(t)
 	  assertTables(t)
 	  local counts = {}
 	  for _, value in ipairs(t) do
@@ -166,7 +166,7 @@ lanes.configure{with_timers = false}
 	  return counts
 	end
 	
-	local function mode(t)
+	function mode(t)
 	  local frequencies = frequency(t)
 	  local last
 	  local most
@@ -181,12 +181,12 @@ lanes.configure{with_timers = false}
 	  return most
 	end
 
-	local function median(t)
+	function median(t)
 	  assert(t ~= nil, "No table provided to median")
 	  return quantile(t, 0.5)
 	end
 
-	local function sdPop(...)
+	function sdPop(...)
 	  return math.sqrt(varPop(...))
 	end
 --end of imported Lua-Stats code
@@ -238,7 +238,7 @@ lanes.configure{with_timers = false}
 		return fields
 	end
 	
-	local function isIP(ip) 
+	function isIP(ip) 
 		local function GetIPType(ip)
 			local IPType = {
 				[0] = "Error",
@@ -280,7 +280,7 @@ lanes.configure{with_timers = false}
 	end
 	
 	
-	local function preconnect()
+	function preconnect()
 		-- Check if either Host or Client
 		tcp = socket.tcp()
 		local ip, dnsdata = socket.dns.toip(HOST_IP)
@@ -309,14 +309,14 @@ lanes.configure{with_timers = false}
 	end
 	
 	
-	local function defineopponent()
+	function defineopponent()
 		-- Set who your Opponent is
 		opponent = socket.udp()
 		opponent:settimeout(0)--(1 / (16777216 / 280896))
 	end
 	
 	
-	local function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
+	function gui_animate(xpos, ypos, img, xreg, yreg, dur_max, cnt_max, dur, cnt)
 		--dur = duration of the frame, max defines how long to hold each frame for
 		--cnt = the frame that's currently being shown, max defines how many total frames exist
 		--region = the size in pixels of each frame
@@ -337,7 +337,7 @@ lanes.configure{with_timers = false}
 	end
 	
 	
-	local function gui_src()
+	function gui_src()
 		VSimgo = "gui_Sprites\\vs_text.png"
 		VSimgt = "gui_Sprites\\vs_text_t.png"
 		bigpet = "gui_Sprites\\PET_big.png"
@@ -366,22 +366,20 @@ lanes.configure{with_timers = false}
 	
 		f3_motion_b = "gui_Sprites\\f3_motion_bg_blue.png"
 		f3_motion_p = "gui_Sprites\\f3_motion_bg_pink.png"
+
+		x_center = 120 
+		y_center = 80
 	end
-	
-	--define variables for gui.draw
-	x_center = 120 
-	y_center = 80
-	gui_src()
 	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
 
 
 	--IMPORTANT: coroutines apparently cannot use these debug functions for displaying data
-	local function debug(message)
+	function debug(message)
 		if debugmessages == 1 then
 			print(message)
 		end
 	end
-	local function debugdraw(x,y,message)
+	function debugdraw(x,y,message)
 		if debugmessages == 1 then
 			gui.drawText(x,y,message,nil,"black")
 		end
@@ -396,7 +394,7 @@ lanes.configure{with_timers = false}
 	
 	--end of debug stuff
 
-	local function readbyterange(addr, length) --length must be multiples of 0x4
+	function readbyterange(addr, length) --length must be multiples of 0x4
 		local x = math.floor(length /4)
 		local temptable = {}
 		for i=0, x do
@@ -405,7 +403,7 @@ lanes.configure{with_timers = false}
 		return temptable
 	end
 	
-	local function writebyterange(addr, usetable)
+	function writebyterange(addr, usetable)
 		local tmptable = {}
 		tmptable = usetable
 		for i=0, #tmptable - 1 do
@@ -417,11 +415,11 @@ lanes.configure{with_timers = false}
 
 	timecutoff = 0x100000
 
-	local function getframetime()
+	function getframetime()
 		local xyz = math.floor((socket.gettime()*10000) % timecutoff)
 		return xyz
 	end
-	local function tinywait()
+	function tinywait()
 		while tostring(math.floor((socket.gettime()*10000) % timecutoff)) == ftt[1] do
 			client.sleep(1) --1 millisecond
 		end
@@ -429,7 +427,7 @@ lanes.configure{with_timers = false}
 --End of "Define constants and various functions"
 
 
-local function resetnet()
+function resetnet()
 	--reset variables that control the p2p connection
 	PLAYERNUM = 0
 	PORTNUM = nil
@@ -443,10 +441,10 @@ local function resetnet()
 	opponent = nil
 	servermsg = "nattlebetwork"
 end
-resetnet()
 
 
-local function resetstate()
+
+function resetstate()
 	--define variables that we might adjust sometimes
 
 	BufferVal = 3		--input lag value in frames
@@ -518,17 +516,17 @@ local function resetstate()
 	menu = nil
 	serialize = true
 end
-resetstate()
 
 
-local delaymenu = 20 --this makes sure the ip menu pops up AFTER the main window has appeared
-while delaymenu > 0 do
-	delaymenu = delaymenu - 1
-	emu.frameadvance()
-end
+
+--local delaymenu = 20 --this makes sure the ip menu pops up AFTER the main window has appeared
+--while delaymenu > 0 do
+--	delaymenu = delaymenu - 1
+--	emu.frameadvance()
+--end
 
 
-local function connectionform()
+function connectionform()
 	menu = forms.newform(300,140,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 142)
@@ -561,16 +559,14 @@ local function connectionform()
 
 	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
 	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
-end
-connectionform()
 
 
-while PLAYERNUM < 1 do
-	emu.frameadvance()
 end
 
 
-local function receivepackets()
+
+
+function receivepackets()
 	-- Loop for Received data
 	while true do
 		data,err,part = opponent:receive()
@@ -734,10 +730,10 @@ local function receivepackets()
 		end
 	end
 end
-co = coroutine.create(function() receivepackets() end)
 
 
-local function Init_Battle_Vis()
+
+function Init_Battle_Vis()
 	--screen position constants
 	vis_x_max_w = 240
 	vis_y_p1_bg = 30
@@ -801,7 +797,7 @@ local function Init_Battle_Vis()
 end
 
 
-local function Battle_Vis()
+function Battle_Vis()
 	if not(scene_anim) then scene_anim = 1 end
 
 	if clock_dif then
@@ -967,7 +963,7 @@ local function Battle_Vis()
 end
 
 
-local function FrameStart()
+function FrameStart()
 	if thisispvp == 0 then return end 
 	--[[this routine only has a niche use. It does not run from an opcode execution, but rather is tied to what 
 		the emulator believes to be the beginning of the frame. So it is unreliable for anything involving
@@ -980,11 +976,11 @@ local function FrameStart()
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 	end
 end
-event.onframestart(FrameStart)
+
 
 
 --runs right before the gamestate update, is included in the loop during rollback
-local function PreBattleLoop()
+function PreBattleLoop()
 	if thisispvp == 0 then return end
 
 	--for whatever reason, pressing a lot of buttons can cause this function to run multiple times
@@ -1055,18 +1051,18 @@ local function PreBattleLoop()
 		TempTargetSpeed = 100
 	end
 end
-event.onmemoryexecute(PreBattleLoop,0x08006434)
+
 
 
 --runs soon after the gamestate update
-local function BattleLoop()
+function BattleLoop()
 	if thisispvp == 0 then return end
 	--nothing yet
 end
 --event.onmemoryexecute(BattleLoop,0x08014944)
 
 
-local function StartResim()
+function StartResim()
 	if thisispvp == 0 then return end
 	--rollback routine
 	--runs once when rollback begins, but not on subsequent rollback frames
@@ -1149,10 +1145,10 @@ local function StartResim()
 		table.remove(save,1)
 	end
 end
-event.onmemoryexecute(StartResim,0x08008808)
 
 
-local function StopResim()
+
+function StopResim()
 	if thisispvp == 0 then return end
 	--probably going to depreciate this routine
 end
@@ -1160,7 +1156,7 @@ end
 
 
 -- Sync Custom Screen
-local function custsynchro()
+function custsynchro()
 	if thisispvp == 0 then return end
 
 	local reg3 = emu.getregister("R3")
@@ -1278,10 +1274,10 @@ local function custsynchro()
 		end
 	end
 end
-event.onmemoryexecute(custsynchro,0x08008B96)
 
 
-local function WaitForPvP()
+
+function WaitForPvP()
 	if memory.readbyte(0x0200188F) == 0x0B then
 		if thisispvp == 0 then
 			waitingforpvp = 1
@@ -1345,9 +1341,9 @@ local function WaitForPvP()
 		thisispvp = 0
     end
 end
-event.onmemoryexecute(WaitForPvP,0x080048CC)
 
-local function ClockSync()
+
+function ClockSync()
 	--new code for synchronizing clocks
 	--run a number of pings in order to determine the median difference between system clock values
 	--stay in a loop while waiting for the round-trip packet 
@@ -1514,11 +1510,11 @@ local function ClockSync()
 	end
 	--end of new code
 end
-event.onmemoryexecute(ClockSync,0x08008810)
+
 
 
 -- Sync Player Hands
-local function SendHand()
+function SendHand()
 	if thisispvp == 0 or opponent == nil then return end
 
 	--when this runs, it means you can safely send your chip hand and write over the remote player's hand
@@ -1565,11 +1561,11 @@ local function SendHand()
 		CanWriteRemoteStats = true
 	end
 end
-event.onmemoryexecute(SendHand,0x08008B56)
+
 
 
 -- Sync Data on Match Load
-local function SendStats()
+function SendStats()
 	if thisispvp == 0 then 
 		memory.write_u8(0x0200F31F, 0x0)
 		return
@@ -1607,10 +1603,10 @@ local function SendStats()
 	StallingBattle = true
 	memory.write_u8(0x0200F31F, 0x1) -- 0x1
 end
-event.onmemoryexecute(SendStats,0x0800761A)
 
 
-local function SendInputs()
+
+function SendInputs()
 	-- Main routine for sending data to other players
 	if opponent and connected then
 
@@ -1711,7 +1707,7 @@ local function SendInputs()
 end
 
 
-local function SetPlayerPorts()
+function SetPlayerPorts()
 	if thisispvp == 0 then return end
 
 	--write port number (0-3)
@@ -1724,10 +1720,10 @@ local function SetPlayerPorts()
 		memory.write_u8(StartBattleFlipped, 0x1)
 	end
 end
-event.onmemoryexecute(SetPlayerPorts,0x08008804)
 
 
-local function ApplyRemoteInputs()
+
+function ApplyRemoteInputs()
 	if thisispvp == 0 then return end
 	if resimulating then return end 
 
@@ -1926,10 +1922,10 @@ local function ApplyRemoteInputs()
 	-- e
 
 end
-event.onmemoryexecute(ApplyRemoteInputs,0x08008800)
 
 
-local function closebattle()
+
+function closebattle()
 	while #save > 0 do
 		memorysavestate.removestate(save[#save])
 		table.remove(save,#save)
@@ -1950,10 +1946,10 @@ local function closebattle()
 	resetstate()
 	--connectionform()
 end
-event.onmemoryexecute(closebattle,0x08006958)
 
 
-local function Init_p2p_Connection()
+
+function Init_p2p_Connection()
 
 	while not connectedclient do
 		if PLAYERNUM == 1 then
@@ -2022,7 +2018,7 @@ end
 --coco = coroutine.create(function() Init_p2p_Connection() end)
 
 
-local function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
+function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 
 	local socket = require("socket.core")
 
@@ -2142,7 +2138,7 @@ end
 
 --debugging tool, disables held inputs so that the stack only every registers an input on a single frame
 sp_read = 0
-local function SinglePress()
+function SinglePress()
 	sp_prev = sp_read
 	sp_read = memory.read_u8(0x02009760)
 	--clearing this memory will cause inputs to not work during battle
@@ -2153,7 +2149,7 @@ end
 --event.onmemoryexecute(SinglePress,0x08000398)
 
 
-local function MainLoop()
+function MainLoop()
 
 	--[[Once the local operation has written over the relevant addresses with the incorrect data, it will flag that 
 		it's now safe to write the remote player's data to those addresses. Once it's safe to write, this code will 
@@ -2185,11 +2181,11 @@ local function MainLoop()
 	end
 
 end
-event.onmemoryexecute(MainLoop,0x080002B4)
+
 
 
 --debugging function that's used to manually browse and load serialized frames
-local function loadsavestate()
+function loadsavestate()
 	statemenu = forms.newform(250,120,"Savestate",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 90)
@@ -2239,10 +2235,9 @@ end
 enablestatedebug = nil
 
 
-
 -- End of Frame loop (runs purely based on time instead of opcodes ran)
-while true do
-	
+function bbn3_netplay_mainloop()
+
 	--debugdraw(160, 5, getframetime())
 
 	--Reusable code for initializing the socket connection between players
@@ -2324,8 +2319,38 @@ while true do
 		client.pause()
 		amloadingstates = true
 	end 
-
-	emu.frameadvance()
 end
+
+
+function init_bbn3_netplay()
+
+	--define variables for gui.draw
+	gui_src()
+
+	resetnet()
+	resetstate()
+	connectionform()
+
+	while PLAYERNUM < 1 do
+		emu.frameadvance()
+	end
+
+	co = coroutine.create(function() receivepackets() end)
+	event.onframestart(FrameStart)
+	event.onmemoryexecute(PreBattleLoop,0x08006434)
+	event.onmemoryexecute(StartResim,0x08008808)
+	event.onmemoryexecute(custsynchro,0x08008B96)
+	event.onmemoryexecute(WaitForPvP,0x080048CC)
+	event.onmemoryexecute(ClockSync,0x08008810)
+	event.onmemoryexecute(SendHand,0x08008B56)
+	event.onmemoryexecute(SendStats,0x0800761A)
+	event.onmemoryexecute(SetPlayerPorts,0x08008804)
+	event.onmemoryexecute(ApplyRemoteInputs,0x08008800)
+	event.onmemoryexecute(closebattle,0x08006958)
+	event.onmemoryexecute(MainLoop,0x080002B4)
+
+end
+
+
 
 return

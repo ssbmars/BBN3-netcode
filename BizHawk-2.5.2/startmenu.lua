@@ -1,20 +1,19 @@
 socket = require("socket.core")
 client.displaymessages(false)
 
-
 --JP text converter code
 	--UTF8 -> Shift-JIS library sourced from AoiSaya, licensed under MIT
 	--https://github.com/AoiSaya/FlashAir_UTF8toSJIS
-	local UTF8toSJIS = require("UTF8toSjis/UTF8toSJIS")
-	local UTF8SJIS_table = "UTF8toSjis/Utf8Sjis.tbl"
+	UTF8toSJIS = require("UTF8toSjis/UTF8toSJIS")
+	UTF8SJIS_table = "UTF8toSjis/Utf8Sjis.tbl"
 
-	local function init_tojp()
+	function init_tojp()
 		fht = io.open(UTF8SJIS_table, "r")
 	end
-	local function close_tojp()
+	function close_tojp()
 		fht:close()
 	end
-	local function tojp(str)
+	function tojp(str)
 		if not altjpfix then return str end
 		local strSJIS = UTF8toSJIS:UTF8_to_SJIS_str_cnv(fht, str)
 		return strSJIS
@@ -23,7 +22,7 @@ client.displaymessages(false)
 
 
 --TO DO: verify specific ROM hash, both for vanilla files and patch files. This should be very helpful for smooth operation
-local function file_exists(name)
+function file_exists(name)
 	if not name then 
 		print("received nil argument for file_exists func")
 		return false
@@ -33,7 +32,7 @@ local function file_exists(name)
 	if f~=nil then io.close(f) return true else return false end
 end
 
-local function write_file(filename, path)
+function write_file(filename, path)
 	if not filename or not path then
 		print("missing arg for write_file func")
 		return
@@ -43,7 +42,7 @@ local function write_file(filename, path)
 	file:close()
 end
 
-local function read_file(filename)
+function read_file(filename)
 	if not filename then
 		print("missing arg for read_file func")
 		return
@@ -54,7 +53,7 @@ local function read_file(filename)
 	return content
 end
 
-local function opengame(path)
+function opengame(path)
 	if not path then 
 		print("missing arg for opengame func")
 		return
@@ -69,7 +68,7 @@ local function opengame(path)
 end
 
 
-local function applypatch()
+function applypatch()
 
 	if src_rom and bat_path then
 		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
@@ -84,7 +83,8 @@ local function applypatch()
 end
 
 
-local function choosegame(game, patch)
+
+function choosegame(game, patch)
 	if file_exists(game) then --can be replaced with something that checks if the ROM md5 is valid (or check both)
 		rom_path = game
 		--forms.destroyall()
@@ -96,28 +96,8 @@ local function choosegame(game, patch)
 end
 
 
-void_path = "Netplay\\voidrom.gba"
 
-BBN3_path = "Netplay\\BBN3 Online.gba"
-BBN3_bat = '".\\patches\\patch BBN3.bat"'
-
-BN6f_path = "Netplay\\BN6 Falzar Online.gba"
-BN6f_bat = '".\\patches\\patch BN6f.bat"'
-
-BN6g_path = "Netplay\\BN6 Gregar Online.gba"
-BN6g_bat = '".\\patches\\patch BN6g.bat"'
-
-EXE6g_path = "Netplay\\EXE6 Gregar Online.gba"
-EXE6g_bat = '".\\patches\\patch EXE6g.bat"'
-
-EXE6f_path = "Netplay\\EXE6 Falzar Online.gba"
-EXE6f_bat = '".\\patches\\patch EXE6f.bat"'
-
-
-GoldenSun = "BBN3\\notbbn3.gba"
-
-
-local function startmenu()
+function startmenu()
 	thisgame = emu.getsystemid()
 	if thisgame ~= "NULL" then 
 		menuopen = nil
@@ -129,7 +109,7 @@ local function startmenu()
 	src_rom = nil
 end
 
-local function bootvoidrom()
+function bootvoidrom()
 	local isrom = emu.getsystemid()
 	if isrom == "NULL" then 
 		choosegame(void_path, nil)
@@ -140,13 +120,13 @@ local function bootvoidrom()
 		end
 	end
 end
-bootvoidrom()
+
 
 
 -- cd /d %~dp0
 -- flips -a "../patches/BBN3.bps" %1 "../BBN3/BBN3.gba"
 
-function newform()
+--[[function newform()
 	local thisgame = emu.getsystemid()
 	if thisgame ~= "NULL" then 
 		thisgame = gameinfo.getromname()
@@ -174,17 +154,18 @@ function newform()
 	button_two = forms.button(menu,"Isaac",function()
 		choosegame(GoldenSun, nil)
 	end,150,10,58,24)
-end
+end]]
 
-local delaymenu = 20
-while delaymenu > 0 do
-	delaymenu = delaymenu - 1
-	emu.frameadvance()
-end
+--local delaymenu = 20
+--while delaymenu > 0 do
+--	delaymenu = delaymenu - 1
+--	emu.frameadvance()
+--end
 --newform()
 
 
-local function configdefaults()
+
+function configdefaults()
 		username = "username"
 		language = "language"
 		use_translation_patches = "use_translation_patches"
@@ -204,10 +185,10 @@ local function configdefaults()
 			{remember_version, "true"},
 			{last_pos_x, 1}}
 end
-configdefaults()
 
 
-local function initdatabase()
+
+function initdatabase()
 	if not file_exists("tango.db") then
 		SQL.createdatabase("tango.db")
 	end
@@ -259,11 +240,35 @@ local function initdatabase()
 			config[config_keys[i][1]] = config_keys[i][2]
 		end
 	end
+
+
+	playername = config[username]
+
+	y_hist = {}
+	local pos_tbl = {}
+	pos_tbl = SQL.readcommand("SELECT pos_x, pos_y FROM pos;")
+	for i=0, #item do
+		if pos_tbl["pos_x "..i] then
+			y_hist[tonumber(pos_tbl["pos_x "..i])] = tonumber(pos_tbl["pos_y "..i])
+		end
+	end
+	--	print(y_hist)
+
+	if config[last_pos_x] then
+		pos_x = tonumber(config[last_pos_x])
+	else
+		pos_x = 1
+	end
+	if y_hist[pos_x] then
+		pos_y = tonumber(y_hist[pos_x])
+	else
+		pos_y = 1
+	end
 end
-initdatabase()
 
 
-local function saveconfig(name, val)
+
+function saveconfig(name, val)
 	if val then
 		config[name] = val
 	end
@@ -279,12 +284,12 @@ local function saveconfig(name, val)
 	end
 end
 
-local function savepos(x, y)
+function savepos(x, y)
 	if not tangotime then return end
 	SQL.writecommand("REPLACE INTO pos (pos_x, pos_y) VALUES("..x..","..y..");")
 end
 
-local function input(i,count)
+function input(i,count)
 	local press = nil
 	local hold = nil
 	local release = nil
@@ -308,7 +313,7 @@ local function input(i,count)
 	return press, hold, release, count
 end
 
-local function proc_ctrl()
+function proc_ctrl()
 	ctrl = joypad.get()
 	--c_p means press, c_h means hold, c_r means release
 	--cont_ means contiguous, for # of contiguous frames that a button is being pressed
@@ -325,6 +330,28 @@ local function proc_ctrl()
 	c_p_Right, c_h_Right, c_r_Right, cont_Right = input('Right', cont_Right)
 end
 
+
+
+function initstartmenudata()
+	void_path = "Netplay\\voidrom.gba"
+	
+	BBN3_path = "Netplay\\BBN3 Online.gba"
+	BBN3_bat = '".\\patches\\patch BBN3.bat"'
+	
+	BN6f_path = "Netplay\\BN6 Falzar Online.gba"
+	BN6f_bat = '".\\patches\\patch BN6f.bat"'
+	
+	BN6g_path = "Netplay\\BN6 Gregar Online.gba"
+	BN6g_bat = '".\\patches\\patch BN6g.bat"'
+	
+	EXE6g_path = "Netplay\\EXE6 Gregar Online.gba"
+	EXE6g_bat = '".\\patches\\patch EXE6g.bat"'
+	
+	EXE6f_path = "Netplay\\EXE6 Falzar Online.gba"
+	EXE6f_bat = '".\\patches\\patch EXE6f.bat"'
+	
+	
+	--GoldenSun = "BBN3\\notbbn3.gba"
 
 
 	x_max = 240
@@ -349,8 +376,6 @@ end
 	arrow_size = 9
 
 
-	playername = config[username]
-
 
 	--define the granular values in a different table for each game, then place those tables into a main table
 	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = BBN3_bat, [4] = "BBN3", [5] = "BN3 Blue (English)"}}
@@ -364,31 +389,10 @@ end
 	--define the order of the main table
 	--item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
 	item = {[1] = BBN3}
+end
 
 
-	y_hist = {}
-	local pos_tbl = {}
-	pos_tbl = SQL.readcommand("SELECT pos_x, pos_y FROM pos;")
-	for i=0, #item do
-		if pos_tbl["pos_x "..i] then
-			y_hist[tonumber(pos_tbl["pos_x "..i])] = tonumber(pos_tbl["pos_y "..i])
-		end
-	end
---	print(y_hist)
-
-	if config[last_pos_x] then
-		pos_x = tonumber(config[last_pos_x])
-	else
-		pos_x = 1
-	end
-	if y_hist[pos_x] then
-		pos_y = tonumber(y_hist[pos_x])
-	else
-		pos_y = 1
-	end
-
-
-local function drawArrow(direction, arrow_timer, arrow_offset, arr_x, arr_y)
+function drawArrow(direction, arrow_timer, arrow_offset, arr_x, arr_y)
 	local frame = arrow_timer
 	local offset = arrow_offset
 
@@ -441,7 +445,7 @@ local function drawArrow(direction, arrow_timer, arrow_offset, arr_x, arr_y)
 end
 
 --mainmenu functions defined here
-	local function mm_acceptbutton()
+	function mm_acceptbutton()
 		if choice_anim or launch_anim or file_prompt then return end
 		p_pos_x = pos_x
 		p_pos_y = pos_y
@@ -504,7 +508,7 @@ end
 		end
 	end
 	
-	local function mm_change_title()
+	function mm_change_title()
 		if not choice_anim then return end
 		if not ct_f then ct_f = 0 end
 	
@@ -552,7 +556,7 @@ end
 		return ct_f
 	end
 	
-	local function mm_launch_title()
+	function mm_launch_title()
 		if not launch_anim then return end
 		if not lt_f then lt_f = 0 end
 		lt_f = lt_f + 1
@@ -597,7 +601,7 @@ end
 		return lt_f
 	end
 
-	local function mm_find_rom()
+	function mm_find_rom()
 		if not file_prompt then return end
 		if not fr_f then fr_f = 0 end
 		fr_f = fr_f + 1
@@ -632,10 +636,9 @@ end
 		mm_fr_continue = nil
 		return fr_f
 	end
-
 --end of mainmenu functions
 
-local function mainmenu()
+function mainmenu()
 	local x = emu.getsystemid()
 	if x ~= "NULL" then 
 		local y = gameinfo.getromname()
@@ -666,7 +669,7 @@ end
 	--Japanese translations provided by exe_race
 	--Spanish translations provided by 
 
-	local function sm_init_settings()
+	function sm_init_settings()
 		local l = config[language]
 		init_tojp()
 		--setting names
@@ -766,10 +769,9 @@ end
 		visible_settings = 5
 	
 	end
-	sm_init_settings()
 	
 	
-	local function sm_showicon(pointer, smx_off, smy_off)
+	function sm_showicon(pointer, smx_off, smy_off)
 		local opt_type = settings[pointer][3][1]
 		local current = config[settings[pointer][2]]
 		local xoff = 0
@@ -810,7 +812,7 @@ end
 	end
 	
 	
-	local function sm_changesetting(pointer)
+	function sm_changesetting(pointer)
 		local opt_type = settings[pointer][3][1]
 		local current = config[settings[pointer][2]]
 	
@@ -847,7 +849,7 @@ end
 	end
 	
 	
-	local function sm_acceptbutton()
+	function sm_acceptbutton()
 		if press_delay then return end
 		if not smpos_y then smpos_y = 1 end
 		if not smpos_x then smpos_x = 1 end
@@ -901,12 +903,12 @@ end
 		end
 	end
 	
-	local function sm_sm_pos(sm_sm_v)
+	function sm_sm_pos(sm_sm_v)
 		local value = (sm_sm_v*18) -7
 		return value
 	end
 	
-	local function sm_showmenu()
+	function sm_showmenu()
 		if not listpos then listpos = 1 end
 
 		for i=1, visible_settings do
@@ -960,7 +962,7 @@ end
 --end of settingsmenu functions
 
 
-local function settingsmenu()
+function settingsmenu()
 	local x = emu.getsystemid()
 	if x ~= "NULL" then 
 		local y = gameinfo.getromname()
@@ -977,7 +979,33 @@ local function settingsmenu()
 end
 
 
--- Main Loop
+function startmenu_mainloop()
+
+	if scene == 1 then
+		mainmenu()
+	elseif scene == 2 then
+		settingsmenu()
+	else
+		scene = 1
+	end
+
+end
+
+
+function init_voidrom()
+	initstartmenudata()
+	bootvoidrom()
+end
+
+
+function init_startmenu()
+	configdefaults()
+	initstartmenudata()
+	initdatabase()
+	sm_init_settings()
+end
+
+--[[-- Main Loop
 while true do
 
 
@@ -1006,6 +1034,6 @@ while true do
 --	end
 
 	emu.frameadvance()
-end
+end]]
 
 return
