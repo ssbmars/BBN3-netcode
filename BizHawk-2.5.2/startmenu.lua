@@ -71,7 +71,7 @@ end
 function applypatch()
 
 	if src_rom and bat_path then
-		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
+		os.execute("cd /d %~dp0 & start \"\" " .. bat_path .." ".. src_rom)
 	else
 		if not src_rom then
 			print("src_rom arg is missing for applypatch func")
@@ -336,19 +336,19 @@ function initstartmenudata()
 	void_path = "Netplay\\voidrom.gba"
 	
 	BBN3_path = "Netplay\\BBN3 Online.gba"
-	BBN3_bat = '".\\patches\\patch BBN3.bat"'
+	BBN3_bat = ".\\patches\\patch_BBN3.bat"
 	
 	BN6f_path = "Netplay\\BN6 Falzar Online.gba"
-	BN6f_bat = '".\\patches\\patch BN6f.bat"'
+	BN6f_bat = '".\\patches\\patch_BN6f.bat"'
 	
 	BN6g_path = "Netplay\\BN6 Gregar Online.gba"
-	BN6g_bat = '".\\patches\\patch BN6g.bat"'
+	BN6g_bat = '".\\patches\\patch_BN6g.bat"'
 	
 	EXE6g_path = "Netplay\\EXE6 Gregar Online.gba"
-	EXE6g_bat = '".\\patches\\patch EXE6g.bat"'
+	EXE6g_bat = '".\\patches\\patch_EXE6g.bat"'
 	
 	EXE6f_path = "Netplay\\EXE6 Falzar Online.gba"
-	EXE6f_bat = '".\\patches\\patch EXE6f.bat"'
+	EXE6f_bat = '".\\patches\\patch_EXE6f.bat"'
 	
 	
 	--GoldenSun = "BBN3\\notbbn3.gba"
@@ -380,8 +380,8 @@ function initstartmenudata()
 	--define the granular values in a different table for each game, then place those tables into a main table
 	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = BBN3_bat, [4] = "BBN3", [5] = "BN3 Blue (English)"}}
 
-	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = BN6g_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)"},
-			{[1] = BN6f_img, [2] = BN6f_path, [3] = BN6f_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)"}}
+	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = BN6g_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Gregar (Japanese)"},
+			{[1] = BN6f_img, [2] = BN6f_path, [3] = BN6f_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Falzar (Japanese)"}}
 
 	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = EXE6g_bat, [4] = "EXE6 Gregar", [5] = "EXE6 Gregar (Japanese)"},
 			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
@@ -629,6 +629,8 @@ end
 			--locate rom file and apply patch
 			src_rom = forms.openfile()
 			if not(src_rom == nil or src_rom == "") then
+				--process the string so it doesn't error from spaces in the name
+				src_rom = "\"".. src_rom .. "\""
 				applypatch()
 			end
 		end
