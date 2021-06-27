@@ -42,6 +42,7 @@
   ]]
 
 
+bbn3_netplay_open = true
 socket = require("socket.core")
 lanes = require "lanes"
 lanes.configure{with_timers = false}
@@ -253,7 +254,7 @@ lanes.configure{with_timers = false}
 			end
 		
 			-- check for format 1.11.111.111 for ipv4
-			local chunks = {ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")}
+			local chunks = {ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")}
 			if (#chunks == 4) then
 				for _,v in pairs(chunks) do
 					if (tonumber(v) < 0 or tonumber(v) > 255) then
@@ -261,8 +262,8 @@ lanes.configure{with_timers = false}
 					end
 				end
 				return IPType[1]
-			else
-				return IPType[0]
+			--else
+			--	return IPType[0]
 			end
 		
 			-- check for ipv6 format, should be 8 'chunks' of numbers/letters
@@ -272,19 +273,30 @@ lanes.configure{with_timers = false}
 			end
 		
 			-- if we get here, assume we've been given a random string
+
 			return IPType[3]
 		end
 	
-		local type = GetIPType(ip)
-		return ip == "localhost" or type == "IPv4" or type == "IPv6"
+		local thisiptype = GetIPType(ip)
+		sessioniptype = thisiptype
+		if thisiptype == "string" then
+			local maybedomain, err = socket.dns.toip(ip)
+			thisiptype = GetIPType(maybedomain)
+			if thisiptype ~= "Error" then
+				sessioniptype = "string"
+			end
+		end
+		return ip == "localhost" or thisiptype == "IPv4" or thisiptype == "IPv6"
 	end
 	
 	
 	function preconnect()
 		-- Check if either Host or Client
 		tcp = socket.tcp()
-		local ip, dnsdata = socket.dns.toip(HOST_IP)
-		HOST_IP = ip
+		if sessioniptype == "string" then
+			local ip, dnsdata = socket.dns.toip(HOST_IP)
+			HOST_IP = ip
+		end
 	
 		tcp:settimeout(6,'b')
 		--tcp:settimeout(1 / (16777216 / 280896),'b')
@@ -519,29 +531,62 @@ end
 
 
 
---local delaymenu = 20 --this makes sure the ip menu pops up AFTER the main window has appeared
---while delaymenu > 0 do
---	delaymenu = delaymenu - 1
---	emu.frameadvance()
---end
-
-
 function connectionform()
-	menu = forms.newform(300,140,"BBN3 Netplay",function() return nil end)
+	menu = forms.newform(300,175,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 142)
 	local form_ypos = (client.ypos() + 80*windowsize + 10)
 	forms.setlocation(menu, form_xpos, form_ypos)
 	label_ip = forms.label(menu,"IP:",8,0,32,24)
 	port_ip = forms.label(menu,"Port:",8,30,32,24)
-	textbox_ip = forms.textbox(menu,"127.0.0.1",240,24,nil,40,0)
+	textbox_default_ip = "127.0.0.1"
+	textbox_ip = forms.textbox(menu,textbox_default_ip,240,24,nil,40,0)
 	textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
+	local badip = "Bad IP"
+	local clippy_opt
+	local clippy_desc
+	local clippy_descs = {
+						["false"] = "Will not read IP from Clipboard",
+						["true"] = "Will read IP from Clipboard if IP field is left default"
+						}
+	if tangotime then
+		clippy_opt = config[read_clipboard]
+		clippy_desc = clippy_descs[clippy_opt]
+	else
+		clippy_opt = "false"
+		clippy_desc = clippy_descs[clippy_opt]
+	end
+
+	local function togglereadclip()
+		return function()
+			if clippy_opt == "true" then
+				clippy_opt = "false"
+			else
+				clippy_opt = "true"
+			end
+			if tangotime then
+				saveconfig(read_clipboard, clippy_opt)
+			end	
+			clippy_desc = clippy_descs[clippy_opt]
+			forms.settext(menu_readclip_desc, clippy_desc)
+		end
+	end
+
+
+	menu_readclip = forms.button(menu,"Toggle", togglereadclip(), 8,100,50,24)
+	menu_readclip_desc = forms.label(menu, clippy_desc, 60,105,232,64)
+
 
 	local function makeCallback(playernum, is_host)
 		return function()
 			PLAYERNUM = playernum
 			local input = forms.gettext(textbox_ip)
 
+			if not(is_host) and clippy_opt == "true" and (input == textbox_default_ip or input == badip) then
+				input = winapi.get_clipboard()
+			end
+			--remove spaces in the ip field (before processing)
+			input = string.gsub(input, "%s+", "")
 			if isIP(input) then
 				if is_host and (input == "127.0.0.1" or input == "localhost") then
 					HOST_IP = "0.0.0.0"
@@ -552,14 +597,13 @@ function connectionform()
 				forms.destroyall()
 				preconnect()
 			else 
-				forms.settext(textbox_ip, "Bad IP")
+				forms.settext(textbox_ip, badip)
 			end
 		end
 	end
 
 	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
 	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
-
 
 end
 
@@ -1443,7 +1487,7 @@ function ClockSync()
 		local medianping = median(wfp_ping)/2
 		local medianclock = median(wfp_val)
 		print("ping = "..medianping .. "  clock = " .. medianclock)
-		clock_dif = math.floor(medianclock + medianping)
+		clock_dif = math.floor(medianclock)
 
 		print("clock_dif: "..clock_dif .. "  (median)")
 
@@ -1467,7 +1511,7 @@ function ClockSync()
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
 		if #wt2 == 3 and wt2[3] == 0  then
-			clock_dif = math.floor(wt2[1] *(-1) + wt2[2] *(-1))
+			clock_dif = math.floor(wt2[1] *(-1))
 			wt2 = {}
 			wfp_SyncFinished = true
 		end
