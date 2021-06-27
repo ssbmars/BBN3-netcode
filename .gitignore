@@ -12,4 +12,6 @@ BBN3-netplay/.ignore/bbn3_no-tp.bps
 BizHawk-2.5.2/config.ini
 BizHawk-2.5.2/config2.ini
 BizHawk-2.5.2/GBA/SaveRAM/*
+BizHawk-2.5.2/GBA/State/*
 BizHawk-2.5.2/tango.db
+* - Copy*
