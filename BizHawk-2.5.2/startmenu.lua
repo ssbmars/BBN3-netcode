@@ -1,5 +1,10 @@
+startmenu_open = true
 socket = require("socket.core")
 client.displaymessages(false)
+emu.limitframerate(true)
+client.speedmode(100)
+client.enablerewind(false)
+client.frameskip(0)
 
 --JP text converter code
 	--UTF8 -> Shift-JIS library sourced from AoiSaya, licensed under MIT
@@ -20,17 +25,6 @@ client.displaymessages(false)
 	end
 --end of JP text converter code
 
-
---TO DO: verify specific ROM hash, both for vanilla files and patch files. This should be very helpful for smooth operation
-function file_exists(name)
-	if not name then 
-		print("received nil argument for file_exists func")
-		return false
-	end
-	--print("file_exists("..name..")")
-	local f=io.open(name,"r")
-	if f~=nil then io.close(f) return true else return false end
-end
 
 function write_file(filename, path)
 	if not filename or not path then
@@ -165,131 +159,12 @@ end]]
 
 
 
-function configdefaults()
-		username = "username"
-		language = "language"
-		use_translation_patches = "use_translation_patches"
-		reduce_movement = "reduce_movement"
-		remember_position = "remember_position"
-		remember_version = "remember_version"
-		last_pos_x = "last_pos_x"
-
-		altjpfix = nil
-
-		config_keys = {
-			{username, "NetBattler"}, 
-			{language, "ENG"}, 
-			{use_translation_patches, "true"}, 
-			{reduce_movement, "false"},
-			{remember_position, "true"},
-			{remember_version, "true"},
-			{last_pos_x, 1}}
-end
-
-
-
-function initdatabase()
-	if not file_exists("tango.db") then
-		SQL.createdatabase("tango.db")
-	end
-
-	if file_exists("tango.db") then
-		tangotime = true
-		SQL.opendatabase("tango.db")
-
-		SQL.writecommand("CREATE TABLE IF NOT EXISTS config_table (ID INTEGER PRIMARY KEY, setting_name TEXT UNIQUE, val);")
-		SQL.writecommand("CREATE TABLE IF NOT EXISTS pos (ID INTEGER PRIMARY KEY, pos_x INTEGER UNIQUE, pos_y INTEGER);")
-
-
-		--read the existing config data and populate the config file with defaults if data is missing
-
-		config_raw = {}
-		config_raw = SQL.readcommand("SELECT * FROM config_table;")
-		--print(config_raw)
-		config = {}
-
-		--first, read the existing data and check whether there's any missing data
-		for i=0, #config_keys do
-			if config_raw["setting_name "..i] and config_raw["val "..i] then
-				config[config_raw["setting_name "..i]] = config_raw["val "..i]
-			end
-		end
-
-		--if there is any missing data, populate the database with default values for the missing data
-		for i=1, #config_keys do
-			if not config[config_keys[i][1]] then
-				--print(config_keys[i][1])
-				SQL.writecommand("REPLACE INTO config_table (setting_name, val) VALUES(".."'".. config_keys[i][1] .."'"..",".."'".. config_keys[i][2] .."'"..");")
-			end
-		end
-
-		--load the updated database into the table
-		config = {}
-		config_raw = SQL.readcommand("SELECT * FROM config_table;")
-		for i=0, #config_keys do
-			if config_raw["setting_name "..i] and config_raw["val "..i] then
-				config[config_raw["setting_name "..i]] = config_raw["val "..i]
-			end
-		end
-
-	else
-		print("unable to create config file")
-		tangotime = false
-		config = {}
-		for i=1, #config_keys do
-			config[config_keys[i][1]] = config_keys[i][2]
-		end
-	end
-
-
-	playername = config[username]
-
-	y_hist = {}
-	local pos_tbl = {}
-	pos_tbl = SQL.readcommand("SELECT pos_x, pos_y FROM pos;")
-	for i=0, #item do
-		if pos_tbl["pos_x "..i] then
-			y_hist[tonumber(pos_tbl["pos_x "..i])] = tonumber(pos_tbl["pos_y "..i])
-		end
-	end
-	--	print(y_hist)
-
-	if config[last_pos_x] then
-		pos_x = tonumber(config[last_pos_x])
-	else
-		pos_x = 1
-	end
-	if y_hist[pos_x] then
-		pos_y = tonumber(y_hist[pos_x])
-	else
-		pos_y = 1
-	end
-end
-
-
-
-function saveconfig(name, val)
-	if val then
-		config[name] = val
-	end
-	if not tangotime then return end
-	SQL.writecommand("REPLACE INTO config_table (setting_name, val) VALUES(".."'".. name .."'"..",".."'".. config[name] .."'"..");")
-	--update config table in memory
-	config = {}
-	config_raw = SQL.readcommand("SELECT * FROM config_table;")
-	for i=0, #config_keys do
-		if config_raw["setting_name "..i] and config_raw["val "..i] then
-			config[config_raw["setting_name "..i]] = config_raw["val "..i]
-		end
-	end
-end
-
 function savepos(x, y)
 	if not tangotime then return end
 	SQL.writecommand("REPLACE INTO pos (pos_x, pos_y) VALUES("..x..","..y..");")
 end
 
-function input(i,count)
+function inputs(i,count)
 	local press = nil
 	local hold = nil
 	local release = nil
@@ -318,16 +193,16 @@ function proc_ctrl()
 	--c_p means press, c_h means hold, c_r means release
 	--cont_ means contiguous, for # of contiguous frames that a button is being pressed
 
-	c_p_A, c_h_A, c_r_A, cont_A = input('A', cont_A)
-	c_p_B, c_h_B, c_r_B, cont_B = input('B', cont_B)
-	c_p_L, c_h_L, c_r_L, cont_L = input('L', cont_L)
-	c_p_R, c_h_R, c_r_R, cont_R = input('R', cont_R)
-	c_p_Start, c_h_Start, c_r_Start, cont_Start = input('Start', cont_Start)
-	c_p_Select, c_h_Select, c_r_Select, cont_Select = input('Select', cont_Select)
-	c_p_Up, c_h_Up, c_r_Up, cont_Up = input('Up', cont_Up)
-	c_p_Down, c_h_Down, c_r_Down, cont_Down = input('Down', cont_Down)
-	c_p_Left, c_h_Left, c_r_Left, cont_Left = input('Left', cont_Left)
-	c_p_Right, c_h_Right, c_r_Right, cont_Right = input('Right', cont_Right)
+	c_p_A, c_h_A, c_r_A, cont_A = inputs('A', cont_A)
+	c_p_B, c_h_B, c_r_B, cont_B = inputs('B', cont_B)
+	c_p_L, c_h_L, c_r_L, cont_L = inputs('L', cont_L)
+	c_p_R, c_h_R, c_r_R, cont_R = inputs('R', cont_R)
+	c_p_Start, c_h_Start, c_r_Start, cont_Start = inputs('Start', cont_Start)
+	c_p_Select, c_h_Select, c_r_Select, cont_Select = inputs('Select', cont_Select)
+	c_p_Up, c_h_Up, c_r_Up, cont_Up = inputs('Up', cont_Up)
+	c_p_Down, c_h_Down, c_r_Down, cont_Down = inputs('Down', cont_Down)
+	c_p_Left, c_h_Left, c_r_Left, cont_Left = inputs('Left', cont_Left)
+	c_p_Right, c_h_Right, c_r_Right, cont_Right = inputs('Right', cont_Right)
 end
 
 
@@ -387,8 +262,8 @@ function initstartmenudata()
 			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
 
 	--define the order of the main table
-	--item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
-	item = {[1] = BBN3}
+	item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
+	--item = {[1] = BBN3}
 end
 
 
@@ -540,7 +415,7 @@ end
 			vy = -1
 		end
 	
-		if config[reduce_movement] == "false" then
+		if config[animate_menu] == "true" then
 			gui.drawImage(item[p_pos_x][p_pos_y][1],0 + x, 0 - y)
 			gui.drawImage(item[pos_x][pos_y][1],(-vx * x_max) + x, (-vy * x_max) + y)
 		else
@@ -609,15 +484,16 @@ end
 		if item[pos_x][pos_y][5] and type(item[pos_x][pos_y][5]) == 'string' then 
 			mm_fr_romname = item[pos_x][pos_y][5]
 		else
+			--error handling: display a default string if string reference would be nil (avoids fatal error)
 			mm_fr_romname = "the rom"
 		end
 	
-		gui.drawText(x_max/2, 30, "Please locate a clean copy of", nil,nil, 12,"Arial", nil, "middle")
-		gui.drawText(x_max/2, 50, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+		gui.drawText(x_max/2, 40, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
+		gui.drawText(x_max/2, 60, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
 		--gui.drawText(x_max/2, 75, "• filename doesn't matter \n• must be a .gba file", nil,nil, 12,"Arial", nil, "middle")
 	
 		if fr_f > 60 then
-			gui.drawText(x_max/2, 100, "Press A to continue", nil,nil, 12,"Arial", nil, "middle")
+			gui.drawText(x_max/2, 100, str_romprompt2, nil,nil, 12,"Arial", nil, "middle")
 			if c_r_A then 
 				mm_fr_continue = true
 			end
@@ -667,9 +543,50 @@ end
 
 
 --settingsmenu functions defined here
+
+	
+	function sm_changename()
+		if not printednamechangemsg then
+			print("name change is not yet implemented")
+			printednamechangemsg = true
+		end
+		return
+
+
+	--	local validkey = {
+	--	["A"] = "a",["B"] = "b",["C"] = "c",["D"] = "d",["E"] = "e",["F"] = "f",["G"] = "g",["H"] = "h"
+	--}
+	--	["I" = "i"},["J" = "j"},["K" = "k"},["L" = "l"},["M" = "m"},["N" = "n"},["O" = "o"},["P" = "p"},["Q" = "q"},
+	--	["R" = "r"},["S" = "s"},["T" = "t"},["U" = "u"},["V" = "v"},["W" = "w"},["X" = "x"},["Y" = "y"},["Z" = "z"},
+	--	["Shift+A" = ""},["Shift+B" = ""},["Shift+C" = ""},["Shift+D" = ""},["Shift+E" = ""},
+	--	["Shift+F" = ""},["Shift+G" = ""},["Shift+H" = ""},["Shift+I" = ""},
+	--	["Shift+J" = ""},["Shift+K" = ""},["Shift+L" = ""},["Shift+M" = ""},
+	--	["Shift+N" = ""},["Shift+P" = ""},["Shift+Q" = ""},["Shift+R" = ""},
+	--	{"Shift+S" = ""},["Shift+T" = ""},["Shift+U" = ""},["Shift+V" = ""},
+	--	["Shift+W" = ""},["Shift+X" = ""},["Shift+Y" = ""},["Shift+Z" = ""},
+	--	{"Minus" = ""},{"Shift+Minus" = ""}
+	--}
+
+
+
+		--[[while true do
+			local pressedbutton = input.get()
+			if pressedbutton["A"] == true then --this does work for the specific letter
+				print(pressedbutton)
+			end
+
+			--if validkey[] then
+			--	print(validkey[])
+			--end
+
+			emu.frameadvance()
+		end]]
+	end
+
+
 	--German translations provided by Zulleyy3
 	--Japanese translations provided by exe_race
-	--Spanish translations provided by 
+	--Spanish translations provided by PachecoElSublime & Pit Rjul
 
 	function sm_init_settings()
 		local l = config[language]
@@ -693,11 +610,11 @@ end
 		["JP"] = tojp("翻訳パッチの使用"),
 		["GER"] = "(EN) Übersetzung anwenden"
 		}
-		reduce_movement_name = {
-		["ENG"] = "Disable Menu Animations", 
-		["ESP"] = "Desactivar animaciones del menú", 
+		animate_menu_name = {
+		["ENG"] = "Enable Menu Animations", 
+		["ESP"] = "Activar animaciones del menú",
 		["JP"] = tojp("スライドアニメーション"),
-		["GER"] = "Menüanimationen deaktivieren" 
+		["GER"] = "Menüanimationen aktivieren" 
 		}
 		remember_position_name = {
 		["ENG"] = "Remember Position", 
@@ -727,34 +644,33 @@ end
 		}
 		use_translation_patches_desc = {
 		["ENG"] = "Automatically apply translation \npatches based on your language \npreference (when available)",
-		["ESP"] = "Aplicar Automáticamente traducción \nde parches basado en tu idioma",
+		["ESP"] = "Aplicar automáticamente parches \nde traducción basado en tu idioma",
 		["JP"] = tojp("設定した言語に従って、自動的\nに翻訳パッチを適用します"),
 		["GER"] = "Wende (falls verfügbar) automatisch\neine englische Übersetzung auf das\nSpiel an"
 		}
-		reduce_movement_desc = {
-		["ENG"] = "Disable the sliding animation \nwhen moving through the game \nselection screen",
-		["ESP"] = "Desactivar animación de deslizamiento \ncuando te mueves en la pantalla de \nselección de juego", 
-		["JP"] = tojp("ゲーム選択時のスライドアニメーション\nをオフにします"),
-		["GER"] = "Deaktiviere die Animationen bei\nNavigation des Auswahlbildschirms."
+		animate_menu_desc = {
+		["ENG"] = "Enable the sliding animation \nwhen moving through the game \nselection screen",
+		["ESP"] = "Activar animación de deslizamiento \ncuando te mueves en la pantalla de \nselección de juego", 
+		["JP"] = tojp("ゲーム選択時のスライドアニメーション\nをオンにします"),
+		["GER"] = "Aktiviere die Animationen bei\nNavigation des Auswahlbildschirms."
 		}
 		remember_position_desc = {
 		["ENG"] = "Remember and return to your \nlast position in the game \nselection screen",
-		["ESP"] = "Recordar y regresar a la última posición \nen la pantalla de selección de juego",
+		["ESP"] = "Mantener y regresar a la última posición \nen la pantalla de selección de juego",
 		["JP"] = tojp("最後に選択したゲームを記憶します"),
 		["GER"] = "Merke und lade die letzte Position\nim Spielauswahlbildschirm."
 		}
 		remember_version_desc = {
 		["ENG"] = "Remember the last selected \nversion for each game",
-		["ESP"] = "Recordar la última versión \nseleccionada para cada juego",
+		["ESP"] = "Mantener la última versión \nseleccionada para cada juego",
 		["JP"] = tojp("最後に選択したバージョンを記憶します"),
 		["GER"] = "Merke die letzte ausgewählte\nVersion per Spiel."
 		}
 
-		close_tojp()
 
 		--options
 		-- "checkmark" , "flag", or "function"
-		username_opt = {"function", {nil} }
+		username_opt = {"function", tablefunc = sm_changename }
 		language_opt = {"flag" , {"ENG", "ESP", "JP", "GER"}}
 		bool_opt = {"checkmark", {"true", "false"}}
 	
@@ -763,15 +679,48 @@ end
 			{username_name[l], username, username_opt, username_desc[l]},
 			{language_name[l], language, language_opt, language_desc[l]},
 			{use_translation_patches_name[l], use_translation_patches, bool_opt, use_translation_patches_desc[l]},
-			{reduce_movement_name[l], reduce_movement, bool_opt, reduce_movement_desc[l]},
+			{animate_menu_name[l], animate_menu, bool_opt, animate_menu_desc[l]},
 			{remember_position_name[l], remember_position, bool_opt, remember_position_desc[l]},
 			{remember_version_name[l], remember_version, bool_opt, remember_version_desc[l]}
 		}
 	
 		visible_settings = 5
-	
+
+		--general menu text
+
+		-- "Clean" = unpatched, vanilla, original
+		-- This is an incomplete sentence. The next line will display the name of the rom that needs to be located
+		str_romprompt1 = {
+		["ENG"] = "Please locate a clean copy of",
+		["ESP"] = "Por favor busca una copia limpia de",
+		["JP"] = "",
+		["GER"] = "Wähle eine frische Kopie des Spiels:"
+		}
+
+		-- e
+		str_romprompt2 = {
+		["ENG"] = "Press [ A ] to Locate ROM",
+		["ESP"] = "Presiona [ A ] para seleccionarla",
+		["JP"] = "",
+		["GER"] = "Drücke A, um eine ROM auszuwählen."
+		}
+
+
+		str_romprompt1 = str_romprompt1[l]
+		str_romprompt2 = str_romprompt2[l]
+
+
+		close_tojp()
+	--[[	
+	{
+		["ENG"] = "",
+		["ESP"] = "",
+		["JP"] = "",
+		["GER"] = "",
+		}	
+	]]
 	end
-	
+
 	
 	function sm_showicon(pointer, smx_off, smy_off)
 		local opt_type = settings[pointer][3][1]
@@ -806,11 +755,10 @@ end
 			gui.drawImageRegion(flags, xoff*15, yoff*9, 15, 9, smx_off - 2, 3 + smy_off)
 	
 		elseif opt_type == "function" then
-	
+
 		else
 			return
 		end
-	
 	end
 	
 	
@@ -844,7 +792,7 @@ end
 			sm_init_settings()
 	
 		elseif opt_type == "function" then
-	
+			local dofunc = settings[pointer][3].tablefunc()
 		else
 			return
 		end
