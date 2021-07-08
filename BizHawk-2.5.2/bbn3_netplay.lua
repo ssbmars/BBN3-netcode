@@ -381,8 +381,9 @@ lanes.configure{with_timers = false}
 
 		x_center = 120 
 		y_center = 80
+		--things get drawn at the base GBA resolution and then scaled up, 
+		-- so calculations are based on 1x GBA res
 	end
-	--things get drawn at the base GBA resolution and then scaled up, so calculations are based on 1x GBA res
 
 
 	--IMPORTANT: coroutines apparently cannot use these debug functions for displaying data
@@ -439,6 +440,8 @@ lanes.configure{with_timers = false}
 --End of "Define constants and various functions"
 
 
+-- PURPOSE:
+-- Initializes or resets variables for the p2p connection, disconnecting players if there are currently any connected.
 function resetnet()
 	--reset variables that control the p2p connection
 	PLAYERNUM = 0
@@ -455,7 +458,8 @@ function resetnet()
 end
 
 
-
+-- PURPOSE:
+-- 
 function resetstate()
 	--define variables that we might adjust sometimes
 
@@ -524,13 +528,15 @@ function resetstate()
 	wfp_local_req = nil
 	wfp_remote_got = nil
 	wfp_remote_sent = nil
+	spvp_connected = nil
 	
 	menu = nil
 	serialize = true
 end
 
 
-
+-- PURPOSE:
+-- 
 function connectionform()
 	menu = forms.newform(300,175,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
@@ -609,7 +615,8 @@ end
 
 
 
-
+-- PURPOSE:
+-- 
 function receivepackets()
 	-- Loop for Received data
 	while true do
@@ -776,7 +783,8 @@ function receivepackets()
 end
 
 
-
+-- PURPOSE:
+-- 
 function Init_Battle_Vis()
 	--screen position constants
 	vis_x_max_w = 240
@@ -841,6 +849,8 @@ function Init_Battle_Vis()
 end
 
 
+-- PURPOSE:
+-- 
 function Battle_Vis()
 	if not(scene_anim) then scene_anim = 1 end
 
@@ -1007,6 +1017,10 @@ function Battle_Vis()
 end
 
 
+-- PURPOSE:
+-- Almost nothing. This just guarantees that the script checks for any received packets at least once every frame.
+-- It's a safeguard against edgecase scenarios while the script needs to receive data but is not running any code 
+-- that would actually attempt to receive data.
 function FrameStart()
 	if thisispvp == 0 then return end 
 	--[[this routine only has a niche use. It does not run from an opcode execution, but rather is tied to what 
@@ -1022,8 +1036,19 @@ function FrameStart()
 end
 
 
-
---runs right before the gamestate update, is included in the loop during rollback
+-- PreBattleLoop is an opcode-triggered equivalent of the event.onframestart() trigger. This means that it must
+-- be hooked into the earliest viable opcode that runs at the start of the absolute root of the gba game loop.
+-- The root of the game loop will appear relatively early on in the ROM. For BBN3 this address is 0x08006434.
+-- This function must be triggered by an opcode because it will run every frame, even during rollback.
+-- This means that it must hook into an opcode that loops once every normal frame progression, and also once
+-- every time it performs one loop of the modified (much leaner) gameloop that's ran while resimulating rollback frames.
+-- PURPOSE:
+-- This function perceives the passing of time in the real world and compares it to how much time was expected to pass since
+-- the last time it checked (once per frame). This allows it to detect stutters, pauses, or frames that ran slowly or too quickly. 
+-- It automatically adjusts the speed of the game to correct for any unexpected bouts of slowness or quickness.
+-- It also creates a new savestate every frame, which is used by our rollback logic.
+-- And it handles exiting out of the "resimulating" state, in which the screen is not updated and functions are
+-- given the context that game logic is running, but for a frame that has already been ran before.
 function PreBattleLoop()
 	if thisispvp == 0 then return end
 
@@ -1097,18 +1122,15 @@ function PreBattleLoop()
 end
 
 
-
---runs soon after the gamestate update
-function BattleLoop()
-	if thisispvp == 0 then return end
-	--nothing yet
-end
---event.onmemoryexecute(BattleLoop,0x08014944)
-
-
+-- Triggered by an opcode that is only ran when the game itself detects that a rollback needs to begin. 
+-- The game checks whether there is a nonzero value in the rollbackflag address, and also the byte directly to the right
+-- of that address is zero. If this is all true, then it branches to the opcode that triggers this function.
+-- This function must run at the very end of the game's input handler routine.
+-- PURPOSE:
+-- Rolls back the gamestate during netplay, then tells the game to simulate those frames again with the new information.
+-- Runs one time per rollback. Sets the 'resimulating' var to true, which can inform the behavior of other functions.
 function StartResim()
 	if thisispvp == 0 then return end
-	--rollback routine
 	--runs once when rollback begins, but not on subsequent rollback frames
 	local rollbackframes = memory.read_u8(rollbackflag)
 
@@ -1191,15 +1213,14 @@ function StartResim()
 end
 
 
-
-function StopResim()
-	if thisispvp == 0 then return end
-	--probably going to depreciate this routine
-end
---event.onmemoryexecute(StopResim,0x0800880C)
-
-
--- Sync Custom Screen
+-- todo: figure out how to describe WHEN this thing is supposed to run
+--
+-- PURPOSE: 
+-- Upon closing the custom screen, prevents the round from starting until completing a handshake in which all players confirm they
+-- have exited chip select and are now waiting for the round to begin. Upon a successful handshake, begins a short countdown before
+-- the round starts. During this wait, it will also correct the client's timestamp if they have drifted away for whatever reason.
+-- It will also correct any details in the gamestate that it's made to be aware of. Currently it's capable of rewriting player HP.
+-- This gamestate correction functionality can be expanded on later if needed.
 function custsynchro()
 	if thisispvp == 0 then return end
 
@@ -1320,73 +1341,44 @@ function custsynchro()
 end
 
 
+--
+--
+-- PURPOSE: 
+-- Can begin running before a connection with another player has been established. This sets the 'waitingforpvp' var to true, 
+-- which is used by other functions to determine whether they need to run. Then it waits until a connection is established,
+-- after which it repeatedly sends a simple handshake packet to the other player. Once it receives the same packet from 
+-- the other player, it enters the loading screen for the match after a small delay.
+function StartSearch()
+	memory.write_u8(0x02006D53, 0x0)
 
-function WaitForPvP()
-	if memory.readbyte(0x0200188F) == 0x0B then
-		if thisispvp == 0 then
-			waitingforpvp = 1
-			delaybattletimer = 30
-			ypos_bigpet = 45
-			yoffset_bigpet = 120
-			connect_delay = 30
-		end
-		thisispvp = 1
-		prevsockettime = nil
-		fs_timerift = 0
+	waitingforpvp = 1
+	delaybattletimer = 30
+	ypos_bigpet = 45
+	yoffset_bigpet = 120
+	connect_delay = 30
 
-		if connect_delay > 0 then
-			connect_delay = connect_delay - 1
-		end
+	thisispvp = 1
+	prevsockettime = nil
+	fs_timerift = 0
+end
 
-		if opponent ~= nil and connected and connect_delay == 0 then
-			tinywait()
-			local frametime = getframetime()
-			local FID = tostring(frametime)
-			table.insert(ftt, 1, FID)
-			ft[FID] = {{},{},{}}
-			ft[FID][3][1] = tostring(BufferVal)
-			ft[FID][3][2] = tostring(waitingforpvp)
-			
-			-- Waiting For PVP Packet
-			local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|wt")
-			opponent:send(send_payload)
-			pl[FID] = send_payload
-
-			if coroutine.status(co) == "suspended" then coroutine.resume(co) end
-		end
-
-
-		if #wt == 0 or connect_delay > 0 then
-			memory.writebyte(SceneIndicator,0x4)
-			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
-			gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
-			dur_signal, cnt_signal = gui_animate(124 - 12, ypos_bigpet +25 +yoffset_bigpet, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
-			if yoffset_bigpet > 0 then
-				yoffset_bigpet = yoffset_bigpet - 10
-				if yoffset_bigpet > 40 then
-					yoffset_bigpet = yoffset_bigpet - 10
-				end
-			end
-		else
-			if waitingforpvp == 1 then
-				waitingforpvp = 0
-			end
-			if delaybattletimer > 0 then
-				memory.writebyte(SceneIndicator,0x4)
-			end
-			if waitingforpvp == 0 and wt[2] == 0 then
-				delaybattletimer = delaybattletimer - 1
-			end
-			gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
-			gui.drawImage(smallpet_bright, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
-			debugdraw(1, 120, wt[2])
-		end
-	else
-		thisispvp = 0
-    end
+function EndSearch()
+	debug("AAAAAAAAA")
+	waitingforpvp = 0
+	thisispvp = 0
+	spvp_connected = nil
 end
 
 
+-- 
+-- 
+-- PURPOSE:
+-- Uses a NTP algorithm to determine how far out of sync the system clocks are between host and client.
+-- It's a multistep repeating handshake that takes some time to complete. Defines the value of 'clock_dif' 
+-- upon completion, and sends values to the client so they can also define clock_dif for their side.
+-- The value of clock_dif is required because nobody ever actually knows exactly what time it is.
+-- We assume all of our clocks are wrong, and just calculate how wrong they are relative to each other
+-- in order to figure out how much time passed between a packet being sent and received between instances.
 function ClockSync()
 	--new code for synchronizing clocks
 	--run a number of pings in order to determine the median difference between system clock values
@@ -1486,7 +1478,7 @@ function ClockSync()
 		--debug(wfpss)
 		local medianping = median(wfp_ping)/2
 		local medianclock = median(wfp_val)
-		print("ping = "..medianping .. "  clock = " .. medianclock)
+		debug("ping = "..medianping .. "  clock = " .. medianclock)
 		clock_dif = math.floor(medianclock)
 
 		print("clock_dif: "..clock_dif .. "  (median)")
@@ -1557,7 +1549,12 @@ end
 
 
 
--- Sync Player Hands
+--
+--
+-- PURPOSE:
+-- Sends data to the other player that tells them which chips you selected.
+-- Determines when it is safe to write the other player's hand to memory upon it being received.
+-- 
 function SendHand()
 	if thisispvp == 0 or opponent == nil then return end
 
@@ -1578,7 +1575,7 @@ function SendHand()
 		-- Write Player Stats to the Frame Table.
 		ft[FID][2][1] = tostring(PLAYERNUM)
 		
-		-- This for loop grabs most if not all of the Player's Stats.
+		-- This for-loop grabs most if not all of the Player's Stats.
 		for i=0,0x10 do
 			ft[FID][2][i+2] = tostring(memory.read_u32_le(PreloadStats + i*0x4))
 		end
@@ -1607,7 +1604,9 @@ function SendHand()
 end
 
 
-
+--
+--
+-- PURPOSE:
 -- Sync Data on Match Load
 function SendStats()
 	if thisispvp == 0 then 
@@ -1649,7 +1648,9 @@ function SendStats()
 end
 
 
-
+--
+--
+-- PURPOSE:
 function SendInputs()
 	-- Main routine for sending data to other players
 	if opponent and connected then
@@ -1751,6 +1752,9 @@ function SendInputs()
 end
 
 
+--
+--
+-- PURPOSE:
 function SetPlayerPorts()
 	if thisispvp == 0 then return end
 
@@ -1766,7 +1770,9 @@ function SetPlayerPorts()
 end
 
 
-
+--
+--
+-- PURPOSE:
 function ApplyRemoteInputs()
 	if thisispvp == 0 then return end
 	if resimulating then return end 
@@ -1968,7 +1974,9 @@ function ApplyRemoteInputs()
 end
 
 
-
+--
+--
+-- PURPOSE:
 function closebattle()
 	while #save > 0 do
 		memorysavestate.removestate(save[#save])
@@ -1992,7 +2000,9 @@ function closebattle()
 end
 
 
-
+--
+--
+-- PURPOSE:
 function Init_p2p_Connection()
 
 	while not connectedclient do
@@ -2061,7 +2071,9 @@ function Init_p2p_Connection()
 end
 --coco = coroutine.create(function() Init_p2p_Connection() end)
 
-
+--
+--
+-- PURPOSE:
 function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 
 	local socket = require("socket.core")
@@ -2180,7 +2192,8 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 end
 
 
---debugging tool, disables held inputs so that the stack only every registers an input on a single frame
+-- This function doesn't need to be understood or replicated.
+-- debugging tool, disables held inputs so that the stack only ever registers an input on a single frame
 sp_read = 0
 function SinglePress()
 	sp_prev = sp_read
@@ -2193,6 +2206,10 @@ end
 --event.onmemoryexecute(SinglePress,0x08000398)
 
 
+--
+--
+-- PURPOSE:
+-- 
 function MainLoop()
 
 	--[[Once the local operation has written over the relevant addresses with the incorrect data, it will flag that 
@@ -2227,8 +2244,8 @@ function MainLoop()
 end
 
 
-
---debugging function that's used to manually browse and load serialized frames
+-- This function doesn't need to be understood or replicated.
+-- debugging tool that's used to manually browse and load serialized frames
 function loadsavestate()
 	statemenu = forms.newform(250,120,"Savestate",function() return nil end)
 	local windowsize = client.getwindowsize()
@@ -2278,11 +2295,78 @@ function loadsavestate()
 end
 enablestatedebug = nil
 
+function SearchPvP()
 
--- End of Frame loop (runs purely based on time instead of opcodes ran)
+	if connect_delay > 0 then
+		connect_delay = connect_delay - 1
+	else
+		connect_delay = 0
+	end
+
+	if not connected then
+		local spvp_ctrl = joypad.get()
+		if spvp_ctrl['B'] then 
+			memory.write_u8(0x02006D53, 0x2)
+		end
+	end
+	
+	if opponent ~= nil and connected and connect_delay == 0 then
+		tinywait()
+		local frametime = getframetime()
+		local FID = tostring(frametime)
+		table.insert(ftt, 1, FID)
+		ft[FID] = {{},{},{}}
+		ft[FID][3][1] = tostring(BufferVal)
+		ft[FID][3][2] = tostring(waitingforpvp)
+		
+		-- Waiting For PVP Packet
+		local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|wt")
+		opponent:send(send_payload)
+		pl[FID] = send_payload
+		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+	end
+	if #wt == 0 or connect_delay > 0 then
+		gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+		gui.drawImage(smallpet, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
+		dur_signal, cnt_signal = gui_animate(124 - 12, ypos_bigpet +25 +yoffset_bigpet, signal_anim, xreg_signal, yreg_signal, dur_max_signal, cnt_max_signal, dur_signal, cnt_signal)
+		if yoffset_bigpet > 0 then
+			yoffset_bigpet = yoffset_bigpet - 10
+			if yoffset_bigpet > 40 then
+				yoffset_bigpet = yoffset_bigpet - 10
+			end
+		end
+	else
+		if waitingforpvp == 1 then
+			waitingforpvp = 0
+		end
+		gui.drawImage(bigpet, 120 -56, ypos_bigpet +yoffset_bigpet)
+		gui.drawImage(smallpet_bright, 124 -8, ypos_bigpet +43 +yoffset_bigpet)
+		debugdraw(1, 120, wt[2])
+		
+		if waitingforpvp == 0 and wt[2] == 0 then
+			delaybattletimer = delaybattletimer - 1
+		end
+		if delaybattletimer <= 0 then
+			spvp_connected = true
+			memory.write_u8(0x02006D53, 0x1)
+		end
+	end
+end
+
+
+
+
+-- This is used by the main lua script, which can call this function from its infinite while-loop every frame.
+-- The while-loop is equivalent to an event.onframeend() trigger, which runs based on the passage of time
+-- instead of based on opcodes ran. This means the code in here will work even if the GBA is stuck in a tiny
+-- infinite loop and isn't executing the normal game loop. Is used for behavior that is not very timing-sensitive.
 function bbn3_netplay_mainloop()
 
 	--debugdraw(160, 5, getframetime())
+
+	if not(spvp_connected) and thisispvp == 1 then
+		SearchPvP()
+	end
 
 	--Reusable code for initializing the socket connection between players
 	if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
@@ -2294,7 +2378,7 @@ function bbn3_netplay_mainloop()
 
 		if lain.status == "done" then
 			debug("Detected viable connection. ")
-			emu.frameadvance()
+			--emu.frameadvance()
 			--if not connected then print("not connected") end
 			--[[
 			--theoretical feature: receive connection info from a server, returned by the p2p_sniffer function
@@ -2305,10 +2389,11 @@ function bbn3_netplay_mainloop()
 			Init_p2p_Connection() 
 
 		elseif lain.status == "error" then
-			print("lain error")
+			print("lane error")
 			print(lain[1] .." ".. lain[2].." ".. lain[3])
 		end
 	end
+
 
 	if connected and memory.read_u8(0x0200F31F) == 1 then
 		SendInputs()
@@ -2366,6 +2451,8 @@ function bbn3_netplay_mainloop()
 end
 
 
+-- To be ran once by the main script. It initializes the data in this script and registers the opcode triggers for
+-- the netplay functions. This has to be ran first before other functions in here will work.
 function init_bbn3_netplay()
 
 	--define variables for gui.draw
@@ -2384,7 +2471,8 @@ function init_bbn3_netplay()
 	event.onmemoryexecute(PreBattleLoop,0x08006434)
 	event.onmemoryexecute(StartResim,0x08008808)
 	event.onmemoryexecute(custsynchro,0x08008B96)
-	event.onmemoryexecute(WaitForPvP,0x080048CC)
+	event.onmemoryexecute(StartSearch,0x0803EB2E)
+	event.onmemoryexecute(EndSearch,0x0803EB74)
 	event.onmemoryexecute(ClockSync,0x08008810)
 	event.onmemoryexecute(SendHand,0x08008B56)
 	event.onmemoryexecute(SendStats,0x0800761A)
