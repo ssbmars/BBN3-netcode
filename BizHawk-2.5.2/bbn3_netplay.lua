@@ -529,6 +529,7 @@ function resetstate()
 	wfp_remote_got = nil
 	wfp_remote_sent = nil
 	spvp_connected = nil
+	clock_dif = nil
 	
 	menu = nil
 	serialize = true
