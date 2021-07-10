@@ -262,8 +262,8 @@ function initstartmenudata()
 			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
 
 	--define the order of the main table
-	item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
-	--item = {[1] = BBN3}
+	--item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
+	item = {[1] = BBN3}
 end
 
 
