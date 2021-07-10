@@ -463,8 +463,8 @@ end
 function resetstate()
 	--define variables that we might adjust sometimes
 
-	BufferVal = 3		--input lag value in frames
-	debugmessages = 1	--toggle whether to print debug messages
+	BufferVal = 4		--input lag value in frames
+	debugmessages = 0	--toggle whether to print debug messages
 	saferollback = 15
 	delaybattletimer = 30
 	clocksync_looptimes = 15
