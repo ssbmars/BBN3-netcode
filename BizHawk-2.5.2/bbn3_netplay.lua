@@ -1337,6 +1337,21 @@ function custsynchro()
 		--	debug(memory.read_u16_le(PlayerHPLocal))
 		else
 			emu.setregister("R3",0)
+			--continually re send packets for this handshake 
+			local i = 1
+			local i2 = frametableSize
+			local i3 = #ftt
+			while i2 > 0 and i3 > 0 do
+				--only send the packet if it has NOT been ACK'd (ACK'd data no longer exists in the table)
+				if ft[ftt[i]] ~= nil then
+					local FID = ftt[i]
+					local send_payload = pl[FID]
+					opponent:send(send_payload)
+					i2 = i2 - 1
+				end
+				i = i + 1
+				i3 = i3 - 1
+			end
 		end
 	end
 end
@@ -1631,7 +1646,6 @@ function SendStats()
 	for i=0,0x10 do
 		ft[FID][2][i+2] = tostring(memory.read_u32_le(PreloadStats + i*0x4)) -- Player Stats
 	end
-	
 	-- Stats Packet
 	local str = "send,"..PLAYERNUM..","..FID.."|"
 	str = str.."1,1,"..ft[FID][2][1].."|"
@@ -2304,12 +2318,13 @@ function SearchPvP()
 		connect_delay = 0
 	end
 
-	if not connected then
-		local spvp_ctrl = joypad.get()
-		if spvp_ctrl['B'] then 
-			memory.write_u8(0x02006D53, 0x2)
-		end
-	end
+	--enable backing out (requires proper handling for cancelling the lua lane)
+	--if not connected then
+	--	local spvp_ctrl = joypad.get()
+	--	if spvp_ctrl['B'] then 
+	--		memory.write_u8(0x02006D53, 0x2)
+	--	end
+	--end
 	
 	if opponent ~= nil and connected and connect_delay == 0 then
 		tinywait()
@@ -2476,7 +2491,7 @@ function init_bbn3_netplay()
 	event.onmemoryexecute(EndSearch,0x0803EB74)
 	event.onmemoryexecute(ClockSync,0x08008810)
 	event.onmemoryexecute(SendHand,0x08008B56)
-	event.onmemoryexecute(SendStats,0x0800761A)
+	event.onmemoryexecute(SendStats,0x08008814)
 	event.onmemoryexecute(SetPlayerPorts,0x08008804)
 	event.onmemoryexecute(ApplyRemoteInputs,0x08008800)
 	event.onmemoryexecute(closebattle,0x08006958)
