@@ -9,6 +9,7 @@ There is also a "load tango double.bat" file in the BizHawk folder which will la
 # Misc
 
 It seems that a decently fast computer is needed in order to run Bizhawk at an acceptable speed. 
+If your PC can't run two local instances of the netplay script without experiencing slowdowns, then it is likely to struggle with online play.
 
 According to Bizhawk's documentation, the scripting feature is only compatible with 64bit Windows systems.  
 There is nothing we can do about this. The Bizhawk developers simply haven't brought the scripting capabilities to Linux or Mac.  
