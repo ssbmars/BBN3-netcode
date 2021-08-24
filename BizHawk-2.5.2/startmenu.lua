@@ -79,11 +79,26 @@ end
 
 
 function choosegame(game, patch)
+	if type(game) == "table" then
+		if config[use_translation_patches] == "true" then
+			game = game[config[language]]
+		else
+			game = game["DEFAULT"]
+		end
+	end
+
 	if file_exists(game) then --can be replaced with something that checks if the ROM md5 is valid (or check both)
 		rom_path = game
 		--forms.destroyall()
 		--formopen = nil
 	else
+		if type(patch) == "table" then
+			if config[use_translation_patches] == "true" then
+				patch = patch[config[language]]
+			else
+				patch = patch["DEFAULT"]
+			end
+		end
 		bat_path = patch
 		file_prompt = true
 	end
@@ -210,8 +225,20 @@ end
 function initstartmenudata()
 	void_path = "Netplay\\voidrom.gba"
 	
-	BBN3_path = "Netplay\\BBN3 Online.gba"
-	BBN3_bat = ".\\patches\\patch_BBN3.bat"
+	BBN3_path = {
+			["DEFAULT"] = "Netplay\\BBN3 Online.gba",
+			["ENG"] = "Netplay\\BBN3 Online.gba",
+			["ESP"] = "Netplay\\BBN3 Online Spanish.gba",
+			["JP"] = "Netplay\\BBN3 Online.gba",
+			["GER"] = "Netplay\\BBN3 Online.gba",
+			}
+	BBN3_bat = {
+			["DEFAULT"] = ".\\patches\\patch_BBN3.bat",
+			["ENG"] = ".\\patches\\patch_BBN3.bat",
+			["ESP"] = ".\\patches\\patch_esp_BBN3.bat",
+			["JP"] = ".\\patches\\patch_BBN3.bat",
+			["GER"] = ".\\patches\\patch_BBN3.bat",
+			}
 	
 	BN6f_path = "Netplay\\BN6 Falzar Online.gba"
 	BN6f_bat = '".\\patches\\patch_BN6f.bat"'
@@ -260,6 +287,8 @@ function initstartmenudata()
 
 	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = EXE6g_bat, [4] = "EXE6 Gregar", [5] = "EXE6 Gregar (Japanese)"},
 			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
+
+
 
 	--define the order of the main table
 	--item = {[1] = BBN3, [2] = BN6, [3] = EXE6 }
@@ -711,14 +740,14 @@ end
 
 
 		close_tojp()
-	--[[	
-	{
-		["ENG"] = "",
-		["ESP"] = "",
-		["JP"] = "",
-		["GER"] = "",
-		}	
-	]]
+		--[[	
+		{
+			["ENG"] = "",
+			["ESP"] = "",
+			["JP"] = "",
+			["GER"] = "",
+			}	
+		]]
 	end
 
 	

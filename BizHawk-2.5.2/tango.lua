@@ -24,9 +24,9 @@ function configdefaults()
 		altjpfix = nil
 
 		config_keys = {
-			{username, "NetBattler"}, 
-			{language, "ENG"}, 
-			{use_translation_patches, "true"}, 
+			{username, "NetBattler"},
+			{language, "ENG"},
+			{use_translation_patches, "true"},
 			{animate_menu, "true"},
 			{remember_position, "true"},
 			{remember_version, "true"},
@@ -159,8 +159,8 @@ local function tango_checkstate()
 		if thisgame == "voidrom" then
 			tango_loadstartmenu()
 			init_startmenu()
-		elseif thisgame == "BBN3 Online" then
-			print(thisgame)
+		elseif thisgame == "BBN3 Online" or thisgame == "BBN3 Online Spanish" then
+			--print(thisgame)
 			tango_loadBBN3()
 		end
 	end
