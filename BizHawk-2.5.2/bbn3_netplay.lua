@@ -476,6 +476,7 @@ function resetstate()
 	HideResim = true
 	TargetFrame = 167.4270629882813 --gonna give this more specific value a shot
 	--167.427063 --166.666666666667
+	client.getconfig().SoundThrottle = false
 	TargetSpeed = 100
 	client.speedmode(TargetSpeed)
 	TempTargetSpeed = 100
@@ -627,7 +628,7 @@ function receivepackets()
 		-- We're checking specifically for full packets, dropped or partial packets aren't good enough.
 		if data ~= nil then
 
-	--[[	--messy debug check
+		--[[--messy debug check
 			--this prints (to the screen) the raw packet data as it's coming in
 			if not(thisco) then
 				thisco = memory.read_u16_le(0x0203b380)
@@ -1081,9 +1082,12 @@ function PreBattleLoop()
 	if resimulating then 
 		if memory.read_u8(rollbackflag+1) == 0 then
 			resimulating = nil
-			client.invisibleemulation(false)
+			--client.invisibleemulation(false)
+			client.getconfig().DispSpeedupFeatures = 2 
+			client.getconfig().SoundThrottle = false
 			emu.limitframerate(true)
 			framethrottle = true
+			--client.unpause_av()
 		else
 			return
 		end 
@@ -1173,7 +1177,10 @@ function StartResim()
 
 
 	if HideResim then
-		client.invisibleemulation(true)
+		--client.invisibleemulation(true)
+		client.getconfig().DispSpeedupFeatures = 0
+		client.getconfig().SoundThrottle = true
+		--client.pause_av()
 	end
 
 	--try copying some visual data
@@ -1313,7 +1320,7 @@ function custsynchro()
 			--overwrite Battle Timestamp
 			memory.write_u16_le(0x0203b380, adj_TS)
 
-			print(currentFrameTime.." - "..h[1].." = "..FrameTimeDif)
+			print(currentFrameTime.. "+ " .. clock_dif .. " - "..h[1].." = "..FrameTimeDif)
 			print("int      = "..WholeFrames)
 			--print("waittime = "..h[2])
 			print("adjusted = "..adj_CntDn)
@@ -1718,7 +1725,7 @@ function SendInputs()
 			Also the amount of table entries to keep before being cleared should allow enough time for 
 			multiple attempts at resending the packets, but should not keep entries for long enough that 
 			it's possible for the frametime value to overlap itself. ]]
-		while #ftt > 240 do
+		while #ftt > 600 do
 			if ft[ftt[#ftt]] ~= nil then
 				for i=1,3 do
 					ft[ftt[#ftt]][i] = nil
@@ -1729,7 +1736,7 @@ function SendInputs()
 		end
 
 		--same thing as above but for the remote table that keeps track of received packets
-		while #rftt > 240 do
+		while #rftt > 600 do
 			if rft[rftt[#rftt]] ~= nil then
 				rft[rftt[#rftt]] = nil
 			end
@@ -2106,13 +2113,13 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 	local r_shake
 	local r_err
 	local loopxs = 0
-	local loopmax = 10
+	local loopmax = 4
 	local host_server, host_err
 
 
 	local function tcpinit()
 		tcp = socket.tcp()
-		tcp:settimeout(5,'b')
+		tcp:settimeout(3,'b')
 	end
 
 	local function resetvars()
@@ -2137,7 +2144,7 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 			end
 			if connectedclient == nil then
 				while not(connectedclient) and host_server == nil do
-					socket.sleep(0.5)
+					socket.sleep(0.3)
 					host_server, host_err = tcp:listen(1)
 				end
 				if host_server == 1 and not connectedclient then
@@ -2145,7 +2152,7 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 				end
 			end
 			if connectedclient then 
-				connectedclient:settimeout(5)
+				connectedclient:settimeout(3)
 				if not r_shake then
 					r_shake, r_err = connectedclient:receive()
 				end
@@ -2170,15 +2177,20 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 		-- Client
 			local err
 			if connectedclient == nil then
-				while err == nil and connectedclient == nil do
-					socket.sleep(0.5)
+				--while err == nil and connectedclient == nil do
+					socket.sleep(1)
 					connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-				end
+				--end
 				if err == "already connected" then
 					--connectedclient = 1
 					--tcp:close()
 					--tcp = socket.tcp()
 					--tcp:settimeout(5,'b')
+				end
+				if err then 
+					tcp:close()
+					resetvars()
+					tcpinit()
 				end
 			end
 			if connectedclient then
@@ -2200,7 +2212,7 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 					resetvars()
 					tcpinit()
 				end
-				socket.sleep(0.3)
+				socket.sleep(0.5)
 			end
 		end
 	end
@@ -2250,10 +2262,6 @@ function MainLoop()
 			CanWriteRemoteChips = nil
 			debug("wrote remote chips")
 		end
-	end
-
-	if resimulating then
-		client.invisibleemulation(false)
 	end
 
 end
@@ -2369,15 +2377,23 @@ function SearchPvP()
 	end
 end
 
+function ShowRNGval()
 
+	local rng1 = bizstring.hex(memory.read_u32_le(0x02009800)) --main rng
+	local rng2 = bizstring.hex(memory.read_u32_le(0x02009730)) --"lazy" rng, according to speedrunners
 
+	gui.drawText(176,136,rng1,nil,"black")
+	gui.drawText(176,147,rng2,nil,"black")
+
+end
+debugrng = true
 
 -- This is used by the main lua script, which can call this function from its infinite while-loop every frame.
 -- The while-loop is equivalent to an event.onframeend() trigger, which runs based on the passage of time
 -- instead of based on opcodes ran. This means the code in here will work even if the GBA is stuck in a tiny
 -- infinite loop and isn't executing the normal game loop. Is used for behavior that is not very timing-sensitive.
 function bbn3_netplay_mainloop()
-
+	--ShowRNGval()
 	--debugdraw(160, 5, getframetime())
 
 	if not(spvp_connected) and thisispvp == 1 then
