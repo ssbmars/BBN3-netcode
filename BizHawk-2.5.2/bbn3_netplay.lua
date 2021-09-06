@@ -44,8 +44,9 @@
 
 bbn3_netplay_open = true
 socket = require("socket.core")
-lanes = require "lanes"
-lanes.configure{with_timers = false}
+mm = require("matchmaker.matchmaker")
+--lanes = require "lanes"
+--lanes.configure{with_timers = false}
 
 --Lua-Stats by Robin Gertenbach, licensed under MIT
 	--https://github.com/rgertenbach/Lua-Stats
@@ -239,6 +240,7 @@ lanes.configure{with_timers = false}
 		return fields
 	end
 	
+	--[[
 	function isIP(ip) 
 		local function GetIPType(ip)
 			local IPType = {
@@ -288,17 +290,46 @@ lanes.configure{with_timers = false}
 		end
 		return ip == "localhost" or thisiptype == "IPv4" or thisiptype == "IPv6"
 	end
-	
+	]]
 	
 	function preconnect()
 		-- Check if either Host or Client
+		--[[
 		tcp = socket.tcp()
 		if sessioniptype == "string" then
 			local ip, dnsdata = socket.dns.toip(HOST_IP)
 			HOST_IP = ip
 		end
+		--]]
+		
+		if PLAYERNUM == 1 then
+			mm:create_session((string.len(SESSION_CODE) > 0))
+			while(mm:get_session():len() == 0) do
+				mm:poll()
+			end
+			print("Hosting.\nSession Key: "..mm:get_session())
+		elseif PLAYERNUM ~= 1 then
+			if SESSION_CODE:len() > 0 then
+				mm:join_session(SESSION_CODE)
+			else
+				mm:join_session()
+			end
+			
+			print("Joining...")
+			
+			local wait_count = 10000 -- in milliseconds
+			while(wait_count > 0 and mm:get_remote_addr() == "") do
+				wait_count = wait_count - 1
+				mm:poll()
+				mm:sleep(0.001)
+			end
+			
+			if mm:get_remote_addr() ~= "" then
+				print("Joined.")
+			end
+		end
 	
-		tcp:settimeout(6,'b')
+		--tcp:settimeout(6,'b')
 		--tcp:settimeout(1 / (16777216 / 280896),'b')
 	
 	
@@ -323,7 +354,7 @@ lanes.configure{with_timers = false}
 	
 	function defineopponent()
 		-- Set who your Opponent is
-		opponent = socket.udp()
+		opponent = mm.socket
 		opponent:settimeout(0)--(1 / (16777216 / 280896))
 	end
 	
@@ -446,15 +477,21 @@ function resetnet()
 	--reset variables that control the p2p connection
 	PLAYERNUM = 0
 	PORTNUM = nil
-	HOST_IP = "127.0.0.1"
-	HOST_PORT = 5738
+	--HOST_IP = "127.0.0.1"
+	--HOST_PORT = 5738
+	SERVER_IP = '0.0.0.0'
+	SERVER_PORT = 5738
+	SESSION_CODE = ""
 	tcp = nil
 	connected = nil
-	connectedclient = nil
+	connectedclient = ""
 	clock_dif = nil
 
 	opponent = nil
 	servermsg = "nattlebetwork"
+	if mm.socket then mm:close() end
+	mm:init("----", SERVER_IP, SERVER_PORT, 0)
+	if mm:check_config() == false then return end
 end
 
 
@@ -533,24 +570,26 @@ function resetstate()
 	clock_dif = nil
 	
 	menu = nil
-	serialize = true
+	bserialize = true
 end
 
 
 -- PURPOSE:
 -- 
 function connectionform()
-	menu = forms.newform(300,175,"BBN3 Netplay",function() return nil end)
+	menu = forms.newform(300,150,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 142)
 	local form_ypos = (client.ypos() + 80*windowsize + 10)
 	forms.setlocation(menu, form_xpos, form_ypos)
-	label_ip = forms.label(menu,"IP:",8,0,32,24)
-	port_ip = forms.label(menu,"Port:",8,30,32,24)
+	--label_ip = forms.label(menu,"IP:",8,5,32,24)
+	--port_ip = forms.label(menu,"Port:",8,35,32,24)
+	session_id = forms.label(menu,"Key:",8,25,32,24)
 	textbox_default_ip = "127.0.0.1"
-	textbox_ip = forms.textbox(menu,textbox_default_ip,240,24,nil,40,0)
-	textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
-	local badip = "Bad IP"
+	--textbox_ip = forms.textbox(menu,textbox_default_ip,240,24,nil,40,0)
+	--textbox_port = forms.textbox(menu,"5738",240,24,nil,40,30)
+	textbox_session_id = forms.textbox(menu,"",240,24,nil,40,20)
+	--[[local badip = "Bad IP"
 	local clippy_opt
 	local clippy_desc
 	local clippy_descs = {
@@ -581,13 +620,16 @@ function connectionform()
 	end
 
 
-	menu_readclip = forms.button(menu,"Toggle", togglereadclip(), 8,100,50,24)
-	menu_readclip_desc = forms.label(menu, clippy_desc, 60,105,232,64)
-
+	menu_readclip = forms.button(menu,"Toggle", togglereadclip(), 8,120,50,24)
+	menu_readclip_desc = forms.label(menu, clippy_desc, 60,125,232,64)
+	]]
 
 	local function makeCallback(playernum, is_host)
 		return function()
 			PLAYERNUM = playernum
+			SESSION_CODE = forms.gettext(textbox_session_id)
+			
+			--[[
 			local input = forms.gettext(textbox_ip)
 
 			if not(is_host) and clippy_opt == "true" and (input == textbox_default_ip or input == badip) then
@@ -607,11 +649,14 @@ function connectionform()
 			else 
 				forms.settext(textbox_ip, badip)
 			end
+			]]
+			forms.destroyall()
+			preconnect()
 		end
 	end
 
-	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,60,48,24)
-	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,60,48,24)
+	button_host = forms.button(menu,"Host", makeCallback(1, true), 80,80,48,24)
+	button_join = forms.button(menu,"Join", makeCallback(2, false), 160,80,48,24)
 
 end
 
@@ -2027,51 +2072,50 @@ end
 -- PURPOSE:
 function Init_p2p_Connection()
 
-	while not connectedclient do
+	while connectedclient == "" do
+		mm:poll()
 		if PLAYERNUM == 1 then
 			if not(Init_p2p_Connection_looped) then
 				Init_p2p_Connection_looped = true
-				tcp:bind(HOST_IP, HOST_PORT)
+				--tcp:bind(HOST_IP, HOST_PORT)
 			end
-			if connectedclient == nil then
-				while host_server == nil do
-					host_server, host_err = tcp:listen(1)
-					--emu.frameadvance()
-				end
-				if host_server == 1 then
-					connectedclient = tcp:accept()
+			if connectedclient == "" then
+				if mm:get_remote_addr() ~= "" then
+					--connectedclient = tcp:accept()
+					connectedclient = mm:get_remote_addr()
+					break
 				end
 			end
 		else
 		-- Client
-			local err
-			if connectedclient == nil then
-				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-				while err == nil and connectedclient == nil do
+			--local err
+			if connectedclient == "" then
+				if mm:get_remote_addr() ~= "" then
+					connectedclient = mm:get_remote_addr()	
+				end
+				--[[connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
+				while connectedclient == "" do
+					connectedclient = mm:get_remote_addr()
 					emu.frameadvance()
 				end
 				if err == "already connected" then
-					connectedclient = 1
-				end
+					connectedclient = mm:get_remote_addr()
+				end]]
 			end
+			emu.frameadvance()
 		end
 	end
 
-	if connectedclient then
+	if connectedclient ~= "" then
 		--debug(connectedclient)
 		connection_attempt_delay = nil
 		Init_p2p_Connection_looped = nil
-		host_server, host_err = nil
-
+		--host_server, host_err = nil
 		defineopponent()
-
+		
 		if PLAYERNUM == 1 then
 			debug("Connected as Server.")
-			ip, port = connectedclient:getpeername()
-			connectedclient:close()
-			tcp:close()
-			opponent:setsockname(HOST_IP, HOST_PORT)
-			opponent:setpeername(ip, port)
+			--connectedclient:close()
 			--debug(ip)
 		else
 	--		client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
@@ -2081,13 +2125,11 @@ function Init_p2p_Connection()
 		    memory.writebyte(0x0801A11D,0x5)
 		    memory.writebyte(0x0801A120,0x0)
 		    memory.writebyte(0x0801A121,0x2)
-			ip, port = tcp:getsockname()
-			tcp:close()
-			opponent:setsockname(ip, port)
-			opponent:setpeername(HOST_IP, HOST_PORT)
 			--debug(HOST_IP..", "..HOST_PORT)
 		end
 		-- Finalize Connection
+		local address = mm:get_remote_addr():split(":")
+		opponent:setpeername(address[1], tonumber(address[2]))
 		connected = true
 	end
 end
@@ -2095,8 +2137,8 @@ end
 
 --
 --
--- PURPOSE:
-function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
+--[[ PURPOSE:
+function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT, servermsg)
 
 	local socket = require("socket.core")
 
@@ -2217,7 +2259,7 @@ function p2p_sniffer(PLAYERNUM, HOST_IP, HOST_PORT,servermsg)
 		end
 	end
 end
-
+]]
 
 -- This function doesn't need to be understood or replicated.
 -- debugging tool, disables held inputs so that the stack only ever registers an input on a single frame
@@ -2305,7 +2347,7 @@ function loadsavestate()
 
 	local function rollbackthatstate()
 		return function()
-			serialize = forms.ischecked(checkbox_serial)
+			bserialize = forms.ischecked(checkbox_serial)
 
 			local i = forms.gettext(textbox_rb)
 			i = tonumber(i)
@@ -2403,13 +2445,15 @@ function bbn3_netplay_mainloop()
 	--Reusable code for initializing the socket connection between players
 	if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
 
+		--[[
 		if not lane_time then
 			lane_time = lanes.gen( "math,package,string,table", {package={}},p2p_sniffer )
 			lain = lane_time(PLAYERNUM,HOST_IP,HOST_PORT,servermsg)
 		end
+		]]
 
-		if lain.status == "done" then
-			debug("Detected viable connection. ")
+		--if lain.status == "done" then
+			--debug("Detected viable connection. ")
 			--emu.frameadvance()
 			--if not connected then print("not connected") end
 			--[[
@@ -2418,12 +2462,13 @@ function bbn3_netplay_mainloop()
 			ret_PORT = lain[2]
 			ret_PLAYERNUM = lain[3]
 			]]
-			Init_p2p_Connection() 
+		Init_p2p_Connection()
 
+		--[[
 		elseif lain.status == "error" then
 			print("lane error")
 			print(lain[1] .." ".. lain[2].." ".. lain[3])
-		end
+		end]]
 	end
 
 
