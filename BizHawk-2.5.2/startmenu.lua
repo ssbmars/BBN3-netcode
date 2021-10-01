@@ -64,21 +64,25 @@ end
 
 function applypatch()
 
-	if src_rom and bat_path then
-		os.execute("cd /d %~dp0 & start \"\" " .. bat_path .." ".. src_rom)
+	if src_rom and patch_file and output_dir then
+		--os.execute("cd /d %~dp0 & start \"\" " .. bat_path .." ".. src_rom)
+		local echo = "& @echo Generating patched ROM "
+		os.execute("cd patches"..echo.."& flips -a "..patch_file.." "..src_rom.." "..output_dir.." & timeout 5")
 	else
-		if not src_rom then
-			print("src_rom arg is missing for applypatch func")
-		end
-		if not bat_path then
-			print("bat_path arg is missing for applypatch func")
-		end
+		if not src_rom then print("src_rom arg is missing for applypatch func") end
+		if not patch_file then print("patch_file arg is missing for applypatch func") end
+		if not output_dir then print("output_dir arg is missing for applypatch func") end
 	end
 end
 
 
 
+-- This function is the first step when you want to launch a rom. It will read the
+-- assigned rom path as well as the path for patching the rom if it doesn't already exist.
+-- If this successfully defines an address for a rom that already exists, you can then run opengame()
+-- This also defines 2/3 of the file paths required to apply the patch for a rom. (rom_path & patch_file)
 function choosegame(game, patch)
+
 	if type(game) == "table" then
 		if config[use_translation_patches] == "true" then
 			game = game[config[language]]
@@ -87,11 +91,15 @@ function choosegame(game, patch)
 		end
 	end
 
+	local validrom
 	if file_exists(game) then --can be replaced with something that checks if the ROM md5 is valid (or check both)
+		validrom = true
 		rom_path = game
-		--forms.destroyall()
-		--formopen = nil
-	else
+	end
+	if not validrom then
+		if game then
+			output_dir = "\"..\\"..game.."\""
+		end
 		if type(patch) == "table" then
 			if config[use_translation_patches] == "true" then
 				patch = patch[config[language]]
@@ -99,24 +107,15 @@ function choosegame(game, patch)
 				patch = patch["DEFAULT"]
 			end
 		end
-		bat_path = patch
+		if patch then
+			patch_file = "\""..patch.."\""
+		end
+		new_rom_path = game
 		file_prompt = true
 	end
 end
 
 
-
-function startmenu()
-	thisgame = emu.getsystemid()
-	if thisgame ~= "NULL" then 
-		menuopen = nil
-		return 
-	end
-	menuopen = true
-	rom_path = nil
-	bat_path = nil
-	src_rom = nil
-end
 
 function bootvoidrom()
 	local isrom = emu.getsystemid()
@@ -132,125 +131,44 @@ end
 
 
 
--- cd /d %~dp0
--- flips -a "../patches/BBN3.bps" %1 "../BBN3/BBN3.gba"
-
---[[function newform()
-	local thisgame = emu.getsystemid()
-	if thisgame ~= "NULL" then 
-		thisgame = gameinfo.getromname()
-		if thisgame ~= "voidrom" then
-			formopen = nil
-			return
-		end
-	end
-	formopen = true
-	rom_path = nil
-	bat_path = nil
-	src_rom = nil
-
-	menu = forms.newform(300,80,"BBN3 Netplay",function()
-		return nil end)
-	local windowsize = client.getwindowsize()
-	local form_xpos = (client.xpos() + 120*windowsize - 142)
-	local form_ypos = (client.ypos() + 80*windowsize + 10)
-	forms.setlocation(menu, form_xpos , form_ypos)
-
-	button_one = forms.button(menu,"BBN3",function()
-		choosegame(BBN3_path, BBN3_bat)
-	end,70,10,58,24)
-
-	button_two = forms.button(menu,"Isaac",function()
-		choosegame(GoldenSun, nil)
-	end,150,10,58,24)
-end]]
-
---local delaymenu = 20
---while delaymenu > 0 do
---	delaymenu = delaymenu - 1
---	emu.frameadvance()
---end
---newform()
-
-
-
 function savepos(x, y)
 	if not tangotime then return end
 	SQL.writecommand("REPLACE INTO pos (pos_x, pos_y) VALUES("..x..","..y..");")
 end
 
-function inputs(i,count)
-	local press = nil
-	local hold = nil
-	local release = nil
-	if not count then count = 0 end
-	-- begin
-	if ctrl[i] then
-		if count >= 16 then
-			hold = true
-		else
-			if count == 0 then
-				press = true
-			end
-			count = count + 1
-		end
-	else
-		if count > 0 then
-			release = true
-		end
-		count = 0
-	end
-	return press, hold, release, count
-end
-
-function proc_ctrl()
-	ctrl = joypad.get()
-	--c_p means press, c_h means hold, c_r means release
-	--cont_ means contiguous, for # of contiguous frames that a button is being pressed
-
-	c_p_A, c_h_A, c_r_A, cont_A = inputs('A', cont_A)
-	c_p_B, c_h_B, c_r_B, cont_B = inputs('B', cont_B)
-	c_p_L, c_h_L, c_r_L, cont_L = inputs('L', cont_L)
-	c_p_R, c_h_R, c_r_R, cont_R = inputs('R', cont_R)
-	c_p_Start, c_h_Start, c_r_Start, cont_Start = inputs('Start', cont_Start)
-	c_p_Select, c_h_Select, c_r_Select, cont_Select = inputs('Select', cont_Select)
-	c_p_Up, c_h_Up, c_r_Up, cont_Up = inputs('Up', cont_Up)
-	c_p_Down, c_h_Down, c_r_Down, cont_Down = inputs('Down', cont_Down)
-	c_p_Left, c_h_Left, c_r_Left, cont_Left = inputs('Left', cont_Left)
-	c_p_Right, c_h_Right, c_r_Right, cont_Right = inputs('Right', cont_Right)
-end
-
-
 
 function initstartmenudata()
 	void_path = "Netplay\\voidrom.gba"
 	
+	local default = "Netplay\\BBN3 Online.gba"
 	BBN3_path = {
-			["DEFAULT"] = "Netplay\\BBN3 Online.gba",
-			["ENG"] = "Netplay\\BBN3 Online.gba",
+			["DEFAULT"] = default,
+			["ENG"] = default,
 			["ESP"] = "Netplay\\BBN3 Online Spanish.gba",
-			["JP"] = "Netplay\\BBN3 Online.gba",
-			["GER"] = "Netplay\\BBN3 Online.gba",
+			["JP"] = default,
+			["GER"] = default,
 			}
-	BBN3_bat = {
-			["DEFAULT"] = ".\\patches\\patch_BBN3.bat",
-			["ENG"] = ".\\patches\\patch_BBN3.bat",
-			["ESP"] = ".\\patches\\patch_esp_BBN3.bat",
-			["JP"] = ".\\patches\\patch_BBN3.bat",
-			["GER"] = ".\\patches\\patch_BBN3.bat",
+
+	local default = "BBN3_Online.bps"
+	BBN3_patch = {
+			["DEFAULT"] = default,
+			["ENG"] = default,
+			["ESP"] = "BBN3_Online_Spanish.bps",
+			["JP"] = default,
+			["GER"] = default,
 			}
 	
 	BN6f_path = "Netplay\\BN6 Falzar Online.gba"
-	BN6f_bat = '".\\patches\\patch_BN6f.bat"'
+	BN6f_patch = "patch_BN6f.bps"
 	
 	BN6g_path = "Netplay\\BN6 Gregar Online.gba"
-	BN6g_bat = '".\\patches\\patch_BN6g.bat"'
+	BN6g_patch = "patch_BN6g.bps"
 	
 	EXE6g_path = "Netplay\\EXE6 Gregar Online.gba"
-	EXE6g_bat = '".\\patches\\patch_EXE6g.bat"'
+	EXE6g_patch = "patch_EXE6g.bps"
 	
 	EXE6f_path = "Netplay\\EXE6 Falzar Online.gba"
-	EXE6f_bat = '".\\patches\\patch_EXE6f.bat"'
+	EXE6f_patch = "patch_EXE6f.bps"
 	
 	
 	--GoldenSun = "BBN3\\notbbn3.gba"
@@ -280,13 +198,13 @@ function initstartmenudata()
 
 
 	--define the granular values in a different table for each game, then place those tables into a main table
-	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = BBN3_bat, [4] = "BBN3", [5] = "BN3 Blue (English)"}}
+	BBN3 = {{[1] = BBN3_img, [2] = BBN3_path, [3] = BBN3_patch, [4] = "BBN3", [5] = "BN3 Blue (English)"}}
 
-	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = BN6g_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Gregar (Japanese)"},
-			{[1] = BN6f_img, [2] = BN6f_path, [3] = BN6f_bat, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Falzar (Japanese)"}}
+	BN6 = { {[1] = BN6g_img, [2] = BN6g_path, [3] = BN6g_patch, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Gregar (Japanese)"},
+			{[1] = BN6f_img, [2] = BN6f_path, [3] = BN6f_patch, [4] = "BN6 Gregar", [5] = "BN6 Gregar (US)", [6] = "EXE6 Falzar (Japanese)"}}
 
-	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = EXE6g_bat, [4] = "EXE6 Gregar", [5] = "EXE6 Gregar (Japanese)"},
-			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_bat, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
+	EXE6 = { {[1] = EXE6g_img, [2] = EXE6g_path, [3] = EXE6g_patch, [4] = "EXE6 Gregar", [5] = "EXE6 Gregar (Japanese)"},
+			 {[1] = EXE6f_img, [2] = EXE6f_path, [3] = EXE6f_patch, [4] = "EXE6 Falzar", [5] = "EXE6 Falzar (Japanese)"}}
 
 
 
@@ -516,30 +434,120 @@ end
 			--error handling: display a default string if string reference would be nil (avoids fatal error)
 			mm_fr_romname = "the rom"
 		end
-	
-		gui.drawText(x_max/2, 40, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
-		gui.drawText(x_max/2, 60, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
-		--gui.drawText(x_max/2, 75, "• filename doesn't matter \n• must be a .gba file", nil,nil, 12,"Arial", nil, "middle")
-	
-		if fr_f > 60 then
-			gui.drawText(x_max/2, 100, str_romprompt2, nil,nil, 12,"Arial", nil, "middle")
+		if not mm_fr_start_rom then
+			gui.drawText(x_max/2, 40, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
+			gui.drawText(x_max/2, 60, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+			--gui.drawText(x_max/2, 75, "• filename doesn't matter \n• must be a .gba file", nil,nil, 12,"Arial", nil, "middle")
+		else
+			local maxkf = 3
+			local fr_framespd = 3
+			local fr_x = 40
+			local fr_y = 40
+			if not mm_fr_curkf then mm_fr_curkf = 0 end
+			if not mm_fr_t3 then mm_fr_t3 = 0 end
+			mm_fr_t3 = mm_fr_t3 + 1
+			if mm_fr_t3 >= fr_framespd then
+				mm_fr_t3 = 0
+				mm_fr_curkf = mm_fr_curkf + 1
+				if mm_fr_curkf > maxkf then
+					mm_fr_curkf = 0
+				end
+			end
+
+			gui.drawImageRegion("gui_Sprites/aquaspin.png", fr_x*mm_fr_curkf, 0, fr_x,fr_y, 120-fr_x/2, 80-fr_y/2)
+		end
+
+		if fr_f > 50 and not(mm_fr_start_rom) then
+			local fr_f2max = 110
+			local fr_f3max = 2
+			if not fr_f2 then fr_f2 = fr_f2max end
+			if not fr_f3 then fr_f3 = fr_f3max end
+
+			if fr_f2 > 0 then
+				local textcolor
+				local transframe = 30
+				local alpha_interv = 0xFF/transframe
+				local picker
+				if (fr_f2max - fr_f2) < transframe then
+					-- fade in (val starts from 1 -> transframe)
+					picker = fr_f2max - fr_f2 + 1
+				elseif (fr_f2max - fr_f2) > (fr_f2max - transframe) then
+					-- fade out (val starts at transframe, goes down to 1)
+					picker = transframe - ((fr_f2max - fr_f2) - (fr_f2max - transframe))
+				end
+				if picker then
+					text_alpha = bizstring.hex(picker*alpha_interv)
+					textcolor = tonumber("0x"..text_alpha.."ffffff")
+				end
+				fr_f2 = fr_f2 - 1
+				gui.drawText(x_max/2, 100, str_romprompt2, textcolor,nil, 12,"Arial", nil, "middle")
+			else
+				fr_f3 = fr_f3 - 1
+				if fr_f3 <= 0 then
+					fr_f2 = fr_f2max
+					fr_f3 = fr_f3max
+				end
+			end
+
 			if c_r_A then 
 				mm_fr_continue = true
+				fr_f2 = nil
+				fr_f3 = nil
 			end
 		end
 	
+		if mm_fr_patchtime then
+			if mm_fr_patchtime_2 then
+				applypatch()
+				mm_fr_patchtime = nil
+				mm_fr_patchtime_2 = nil 
+			end
+			if not mm_fr_patchtime_2 then mm_fr_patchtime_2 = true end
+		end
+
 		if mm_fr_continue then
-			file_prompt = nil
 			fr_f = 0
 			--locate rom file and apply patch
 			src_rom = forms.openfile()
 			if not(src_rom == nil or src_rom == "") then
 				--process the string so it doesn't error from spaces in the name
 				src_rom = "\"".. src_rom .. "\""
-				applypatch()
+				mm_fr_start_rom = true
+				mm_fr_patchtime = true
 			end
 		end
 	
+		if mm_fr_start_rom then
+			if not mm_fr_t1 then mm_fr_t1 = 0 end
+			if not mm_fr_t2 then mm_fr_t2 = 0 end
+			local function mm_fr_exit()
+				mm_fr_start_rom = nil
+				file_prompt = nil
+				mm_fr_t1 = nil
+				mm_fr_t2 = nil
+				mm_fr_t3 = nil	-- this is used by the spinning animations
+			end
+			local romready
+			mm_fr_t1 = mm_fr_t1 + 1
+
+			-- every ten frames, check whether the rom has been created
+			if mm_fr_t1 and mm_fr_t1 > 25 then
+				mm_fr_t1 = 0
+				mm_fr_t2 = mm_fr_t2 + 1
+				romready = file_exists(new_rom_path)
+			end
+			-- once the rom is generated, launch it
+			if romready then
+				mm_fr_exit()
+				gui.clearGraphics()
+				opengame(new_rom_path)
+			end
+			-- exit condition for if the rom isn't found (after 6 unsuccessful checks)
+			if mm_fr_t2 and mm_fr_t2 > 2 then
+				mm_fr_exit()
+			end
+		end
+
 		mm_fr_continue = nil
 		return fr_f
 	end
@@ -613,6 +621,57 @@ end
 	end
 
 
+	function sm_changebuffer(pointer)
+
+		local buffer_val = tonumber(config[delay_buffer])
+		local minopt = tonumber(settings[pointer][3][2])
+		local maxopt = tonumber(settings[pointer][3][3])
+		
+		while true do
+			proc_ctrl()
+			if c_r_A or c_r_B or c_r_Start then
+				--update the database then break loop
+				saveconfig(delay_buffer, buffer_val)
+				proc_ctrl()
+				break
+			end
+
+			if c_p_Left then
+				if not ((buffer_val - 1) < minopt) then
+					buffer_val = buffer_val - 1
+				end
+			elseif c_p_Right then
+				if not ((buffer_val + 1) > maxopt) then
+					buffer_val = buffer_val + 1
+				end
+			end
+
+			i1 = 0xffff0000
+			i2 = "Yellow"
+			i3 = 0xff0eca00
+			local colorchart = {i1,i2,i3,i2,i2,i2,i1,i1,i1}
+			local numcolor = colorchart[buffer_val]
+
+			gui.drawText(x_center, y_center/2, buffer_val, numcolor,nil,18,"Arial", "Bold", "Center")
+
+			if buffer_val > minopt then
+				drawArrow(2, 1, 1, x_center - 16, y_center/2 + 2)
+			end
+			if buffer_val < maxopt then
+				drawArrow(3, 1, 1, x_center + 16, y_center/2 + 2)
+			end
+
+			gui.drawText(x_center, y_center/2 - 20, settings[pointer][1],nil,nil,12,"Arial",nil, "Center")
+
+			local description = settings[smpos_y][4]
+			gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
+			gui.drawImage(settings_footer, 0, 0)
+
+			emu.frameadvance()
+		end
+	end
+
+
 	--German translations provided by Zulleyy3
 	--Japanese translations provided by exe_race
 	--Spanish translations provided by PachecoElSublime & Pit Rjul
@@ -626,6 +685,12 @@ end
 		["ESP"] = "Cambiar Nombre", 
 		["JP"] = tojp("名前の変更"),
 		["GER"] = "Charakternamen ändern"
+		}
+		delay_buffer_name = {
+		["ENG"] = "Delay Buffer",
+		["ESP"] = "Delay Buffer",
+		["JP"] = "Delay Buffer",
+		["GER"] = "Delay Buffer",
 		}
 		language_name = {
 		["ENG"] = "Language", 
@@ -665,6 +730,12 @@ end
 		["JP"] = tojp("ネット対戦時、対戦相手に表示される\n名前です"),
 		["GER"] = "Andere Spieler werden deinen Namen \nsehen, wenn du gegen sie online spielst."
 		}
+		delay_buffer_desc = {
+		["ENG"] = "Higher values will increase input delay\nbut reduce the amount of visual\nhiccups during laggy matches.",
+		["ESP"] = "",
+		["JP"] = "",
+		["GER"] = "",
+		}
 		language_desc = {
 		["ENG"] = "Change the language used by \nthe netplay interface",
 		["ESP"] = "Cambia el lenguaje utilizado \npor la interfaz del juego",
@@ -702,10 +773,12 @@ end
 		username_opt = {"function", tablefunc = sm_changename }
 		language_opt = {"flag" , {"ENG", "ESP", "JP", "GER"}}
 		bool_opt = {"checkmark", {"true", "false"}}
+		buffer_opts = {"buffer",1,9, tablefunc = sm_changebuffer}
 	
 	
 		settings = {
 			{username_name[l], username, username_opt, username_desc[l]},
+			{delay_buffer_name[l], delay_buffer, buffer_opts, delay_buffer_desc[l]},
 			{language_name[l], language, language_opt, language_desc[l]},
 			{use_translation_patches_name[l], use_translation_patches, bool_opt, use_translation_patches_desc[l]},
 			{animate_menu_name[l], animate_menu, bool_opt, animate_menu_desc[l]},
@@ -783,6 +856,18 @@ end
 			end
 			gui.drawImageRegion(flags, xoff*15, yoff*9, 15, 9, smx_off - 2, 3 + smy_off)
 	
+		elseif opt_type == "buffer" then
+			current = tonumber(current)
+			local minopt = tonumber(settings[pointer][3][2])
+			local maxopt = tonumber(settings[pointer][3][3])
+			i1 = 0xffff0000
+			i2 = "Yellow"
+			i3 = 0xff0eca00
+			local colorchart = {i1,i2,i3,i2,i2,i2,i1,i1,i1}
+			local numcolor = colorchart[current]
+
+			gui.drawText(smx_off, smy_off, current, numcolor,nil,12,"Arial","Bold")
+
 		elseif opt_type == "function" then
 
 		else
@@ -819,6 +904,9 @@ end
 			end
 
 			sm_init_settings()
+
+		elseif opt_type == "buffer" then
+			local dofunc = settings[pointer][3].tablefunc(pointer)
 	
 		elseif opt_type == "function" then
 			local dofunc = settings[pointer][3].tablefunc()
@@ -832,25 +920,31 @@ end
 		if press_delay then return end
 		if not smpos_y then smpos_y = 1 end
 		if not smpos_x then smpos_x = 1 end
-		if not listpos then listpos = 1 end
-		p_smpos_y = smpos_y 
+		if not listpos then listpos = 1 
+			p_listpos = listpos 
+		end
+		p_smpos_y = smpos_y
 		p_smpos_x = smpos_x
-		press_delay = 6
-	
+		press_delay = 5
+
 		if c_r_A then
 			--toggle setting
 			sm_changesetting(smpos_y)
-	
+
 		elseif c_r_Start or c_r_B then
 			scene = scene - 1
 			smpos_y = 1
 			smpos_x = 1
+			p_smpos_y = 1
+			p_smpos_x = 1
 			listpos = 1
-	
+			p_listpos = 1
+
 		elseif c_p_Up or c_h_Up then
 			if settings[smpos_y-1] then
 				smpos_y = smpos_y - 1
-	
+
+				p_listpos = listpos
 				if listpos > 1 then
 					listpos = listpos - 1
 				end
@@ -858,7 +952,8 @@ end
 		elseif c_p_Down or c_h_Down then
 			if settings[smpos_y+1] then
 				smpos_y = smpos_y + 1
-	
+
+				p_listpos = listpos
 				if listpos < visible_settings then
 					listpos = listpos + 1
 				end
@@ -876,6 +971,8 @@ end
 			--moved horizontally
 		elseif c_r_A then
 			--just here so press_delay gets set
+			press_delay = 2
+			p_smpos_y = smpos_y
 		else
 			--a place for idle things
 			press_delay = nil
@@ -884,7 +981,28 @@ end
 	
 	function sm_sm_pos(sm_sm_v)
 		local value = (sm_sm_v*18) -7
+
+		local extraval
+		if press_delay and (listpos == 1 or listpos == visible_settings) and p_listpos == listpos and p_smpos_y ~= smpos_y then
+			extraval = press_delay*3
+			if p_smpos_y > smpos_y then
+				extraval = -1 * extraval
+			end
+			value = value + extraval
+		end
+
 		return value
+	end
+
+	function sm_sm_indent(the_val)
+		if press_delay and p_smpos_y ~= smpos_y then 
+			if the_val > 0 then
+				the_val = the_val + 1 - press_delay
+			else
+				the_val = the_val - 1 + press_delay
+			end
+		end
+		return the_val
 	end
 	
 	function sm_showmenu()
@@ -894,7 +1012,11 @@ end
 			local offset = smpos_y + (i - listpos)
 			if settings[offset] then
 				local indent = 0
-				if i == listpos then indent = 5 end
+				if i == listpos then 
+					indent = sm_sm_indent(5)
+				elseif i == p_listpos or (p_listpos == listpos and math.abs(listpos - i) == 1) then 
+					indent = sm_sm_indent(0)
+				end
 				if settings[offset] then
 					gui.drawText(40+indent, sm_sm_pos(i), settings[offset][1],nil,nil,12, "Arial")
 				end
@@ -984,35 +1106,7 @@ function init_startmenu()
 	sm_init_settings()
 end
 
---[[-- Main Loop
-while true do
 
 
-	if scene == 1 then
-		mainmenu()
-	elseif scene == 2 then
-		settingsmenu()
-	else
-		scene = 1
-	end
-
-
-
---	if src_rom then
---		os.execute('cd /d %~dp0 & start "" ' .. bat_path .." ".. src_rom)
---		newform()
---	end
---
---	if rom_path then
---		if file_exists(rom_path) == true then
---			opengame(rom_path)
---		else
---			emu.frameadvance()
---		end
---		--newform()
---	end
-
-	emu.frameadvance()
-end]]
 
 return
