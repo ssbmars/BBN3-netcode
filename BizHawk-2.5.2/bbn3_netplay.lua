@@ -44,8 +44,8 @@
 
 bbn3_netplay_open = true
 socket = require("socket.core")
-lanes = require "lanes"
-lanes.configure{with_timers = false}
+mm = require("matchmaker.matchmaker")
+
 
 --Lua-Stats by Robin Gertenbach, licensed under MIT
 	--https://github.com/rgertenbach/Lua-Stats
@@ -199,6 +199,8 @@ lanes.configure{with_timers = false}
 		InputData = 0x0203B400
 			InputStackSize = InputData + 0x5
 			rollbackflag = InputData + 0x6
+			InputPointer = InputData + 0x8
+			ExtraBufferAddr = InputData + 0x9
 			SceneIndicator = 0x020097F8
 			StartBattleFlipped = 0x0203B362
 			EndBattleEarly = 0x0203B365
@@ -291,15 +293,19 @@ lanes.configure{with_timers = false}
 	
 	
 	function preconnect()
-		-- Check if either Host or Client
-		tcp = socket.tcp()
-		if sessioniptype == "string" then
-			local ip, dnsdata = socket.dns.toip(HOST_IP)
-			HOST_IP = ip
+
+		if direct_connect_mode then
+			lanes = require "lanes"
+			lanes.configure{with_timers = false}
+
+			-- Check if either Host or Client
+			tcp = socket.tcp()
+			if sessioniptype == "string" then
+				local ip, dnsdata = socket.dns.toip(HOST_IP)
+				HOST_IP = ip
+			end
+			tcp:settimeout(6,'b')
 		end
-	
-		tcp:settimeout(6,'b')
-		--tcp:settimeout(1 / (16777216 / 280896),'b')
 	
 	
 		--define controller ports and offsets for individual players
@@ -323,7 +329,11 @@ lanes.configure{with_timers = false}
 	
 	function defineopponent()
 		-- Set who your Opponent is
-		opponent = socket.udp()
+		if direct_connect_mode then
+			opponent = socket.udp()
+		else
+			opponent = mm.socket
+		end
 		opponent:settimeout(0)--(1 / (16777216 / 280896))
 	end
 	
@@ -444,17 +454,32 @@ lanes.configure{with_timers = false}
 -- Initializes or resets variables for the p2p connection, disconnecting players if there are currently any connected.
 function resetnet()
 	--reset variables that control the p2p connection
-	PLAYERNUM = 0
-	PORTNUM = nil
+	if opponent then 
+		opponent:close()
+	end
 	HOST_IP = "127.0.0.1"
 	HOST_PORT = 5738
+	direct_connect_mode = nil
+	servermsg = "nattlebetwork"
+	
+	PLAYERNUM = 0
+	PORTNUM = nil
+	SERVER_IP = '158.101.96.179'
+	SERVER_PORT = 5738
+	SESSION_CODE = ""
 	tcp = nil
 	connected = nil
-	connectedclient = nil
 	clock_dif = nil
+	connectedclient = ""
+	ip2p_timer = nil
+	ssp_connected = nil
+	ssp_timer = nil
 
 	opponent = nil
-	servermsg = "nattlebetwork"
+
+	--if mm.socket then mm:close() end
+	mm:init("YZ0123", SERVER_IP, SERVER_PORT, 0)
+	if mm:check_config() == false then return end
 end
 
 
@@ -463,12 +488,16 @@ end
 function resetstate()
 	--define variables that we might adjust sometimes
 
-	BufferVal = 4		--input lag value in frames
-	debugmessages = 0	--toggle whether to print debug messages
+	BufferVal = 1		--absolute minimum input lag value in frames
+	ExtraBuffer = config[delay_buffer] - BufferVal
+		if ExtraBuffer < 0 then
+			ExtraBuffer = 0
+		end
+	debugmessages = 1	--toggle whether to print debug messages
 	saferollback = 15
 	delaybattletimer = 30
 	clocksync_looptimes = 15
-	savecount = 60	--amount of savestate frames to keep
+	savecount = 90	--amount of savestate frames to keep
 	client.displaymessages(false)
 	emu.minimizeframeskip(false)
 	client.enablerewind(false)
@@ -521,6 +550,7 @@ function resetstate()
 	ari_lastinput = 0
 	ari_droppedcount = 0
 	ari_contig_non_rb = 0
+	InputPointerVal = 0
 	save = {}  --savestate ID table
 	FullInputStack = {}  --input stack for rollback frames
 	CycleInputStack = {} --input stack when the input handler cycles it down to make more room
@@ -531,15 +561,17 @@ function resetstate()
 	wfp_remote_sent = nil
 	spvp_connected = nil
 	clock_dif = nil
+	should_disconnect = nil
+	ssp_timer = nil
 	
 	menu = nil
-	serialize = true
+	debug_reserialize = true
 end
 
 
 -- PURPOSE:
 -- 
-function connectionform()
+function directconnectionform()
 	menu = forms.newform(300,175,"BBN3 Netplay",function() return nil end)
 	local windowsize = client.getwindowsize()
 	local form_xpos = (client.xpos() + 120*windowsize - 142)
@@ -594,7 +626,9 @@ function connectionform()
 				input = winapi.get_clipboard()
 			end
 			--remove spaces in the ip field (before processing)
-			input = string.gsub(input, "%s+", "")
+			if type(input) == "string" then
+				input = string.gsub(input, "%s+", "")
+			end
 			if isIP(input) then
 				if is_host and (input == "127.0.0.1" or input == "localhost") then
 					HOST_IP = "0.0.0.0"
@@ -615,6 +649,33 @@ function connectionform()
 
 end
 
+
+function ocm_directip(is_host)
+	local input
+	local badip = nil
+	if is_host then
+		PLAYERNUM = 1
+		HOST_IP = "0.0.0.0"
+		print("am host")
+	else
+		PLAYERNUM = 2
+		input = winapi.get_clipboard()
+		input = string.gsub(input, "%s+", "")
+		if isIP(input) then
+			HOST_IP = input
+			print("am client")
+		else
+			badip = true
+		end
+	end
+	if badip then 
+		return
+	end
+	HOST_PORT = 5738
+	direct_connect_mode = true
+	preconnect()
+
+end
 
 
 -- PURPOSE:
@@ -774,7 +835,7 @@ function receivepackets()
 			if timedout >= 3*(memory.read_u8(InputBufferRemote) + saferollback) then
 				--	emu.yield()
 				if timedout >= 60*7 and waitingforpvp == 0 then
-					connected = nil
+					should_disconnect = true
 					acked = nil
 					break
 				end
@@ -906,7 +967,7 @@ function Battle_Vis()
 				opponent:send(send_payload)
 				pl[FID] = send_payload
 
-				vis_looptimes = vis_looptimes + waittime
+				vis_looptimes = vis_looptimes + waittime + ExtraBuffer
 				SB_Received_2 = true
 				wt4 = {}
 			end
@@ -924,7 +985,7 @@ function Battle_Vis()
 			debug("adj wait = "..wt4[2] .. " - " .. WholeFrames)
 
 			--set the amount of frames to wait before beginning turn
-			vis_looptimes = vis_looptimes + adj_CntDn
+			vis_looptimes = vis_looptimes + adj_CntDn + ExtraBuffer
 			--clean the table
 			wt4 = {}
 		end
@@ -1144,14 +1205,22 @@ function StartResim()
 	resimulating = true
 
 	--update inputs that are still guesses with the more recent data
-	local pointer = rollbackframes + memory.read_u8(InputBufferRemote)
+	local pointer = InputPointerVal - (rollbackframes + memory.read_u8(InputBufferRemote))
+	local stacksize = memory.read_u8(InputStackSize)
+	if pointer < 0 then
+		pointer = pointer + stacksize
+	end
 	local isguess = nil
 	local newguess = nil
 	local writecount = 0
-	while pointer > -1 do
-		isguess = memory.read_u8(InputStackRemote+1 +pointer*0x10)
+	while pointer ~= InputPointerVal+1 do
+		
+		if pointer >= stacksize then
+			pointer = pointer - stacksize
+		end
+		isguess = memory.read_u8(InputStackRemote+1 + pointer*0x10)
 		if isguess == 0 then
-			newguess = memory.read_u16_le(InputStackRemote+2 +pointer*0x10)
+			newguess = memory.read_u16_le(InputStackRemote+2 + pointer*0x10)
 			writecount = 0
 		elseif newguess then
 			--idea for how to use writecount:
@@ -1163,10 +1232,13 @@ function StartResim()
 				--else
 				--	writeguess = newguess
 				--end
+			-- probably an oversight with writecount: it isn't aware of how many many contiguous frames an input has already
+			-- been held for. It only knows how many frames it's adding on to it. It probably needs to know both.
+
 			memory.write_u16_le(InputStackRemote + 0x2 + pointer*0x10, newguess)
 			writecount = writecount + 1
 		end
-		pointer = pointer - 1
+		pointer = pointer + 1
 	end
 
 	--save the corrected input stack
@@ -1189,7 +1261,8 @@ function StartResim()
 
 	--load savestate
 	memorysavestate.loadcorestate(save[rollbackframes])
-
+	-- record the stack pointer for the frame that was just loaded
+	local BackupInputPointerVal = memory.read_u8(InputPointer)
 
 	--write the corrected input stack to RAM
 	for i=0,(stacksize*4)+0x10 do
@@ -1197,6 +1270,8 @@ function StartResim()
 		table.remove(FullInputStack,#FullInputStack)
 	end
 
+	-- restore the stack pointer for this frame
+	memory.write_u8(InputPointer, BackupInputPointerVal)
 
 	--writebyterange(0x0200C0C0, visdata)
 
@@ -1290,14 +1365,14 @@ function custsynchro()
 				ft[FID][3][1] = socket.gettime()*10000
 				ft[FID][3][2] = tostring(waittime)
 				ft[FID][3][3] = tostring(memory.read_u32_le(0x02009800)) -- Battle RNG
-				ft[FID][3][4] = tostring(memory.read_u16_le(0x0203b380)) -- Battle Timestamp
+				ft[FID][3][4] = tostring((memory.read_u16_le(0x0203b380) + ExtraBuffer) % 0x10000 ) -- Battle Timestamp
 				
 				-- Host Packet
 				local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|2,3,"..ft[FID][3][3].."|2,4,"..ft[FID][3][4].."|h")
 				opponent:send(send_payload)
 				pl[FID] = send_payload
 
-				sync_TurnCountDown = waittime
+				sync_TurnCountDown = waittime + ExtraBuffer
 			end
 		end
 
@@ -1310,11 +1385,11 @@ function custsynchro()
 			local remainder = FrameTimeDif - (WholeFrames*TargetFrame)
 
 			local adj_CntDn = h[2] - WholeFrames
-			local adj_TS = math.floor((h[4] + WholeFrames)%0x10000)
+			local adj_TS = math.floor((h[4] + WholeFrames - ExtraBuffer)%0x10000)
 
 			--fs_timerift = fs_timerift + remainder
 			--set the amount of frames to wait before beginning turn
-			sync_TurnCountDown = adj_CntDn
+			sync_TurnCountDown = adj_CntDn + ExtraBuffer
 			--overwrite Battle RNG value
 			memory.write_u32_le(0x02009800, h[3])
 			--overwrite Battle Timestamp
@@ -1373,6 +1448,13 @@ end
 -- the other player, it enters the loading screen for the match after a small delay.
 function StartSearch()
 	memory.write_u8(0x02006D53, 0x0)
+	print("StartSearch() ran")
+	if opponent then
+		--this will be the context for whether to show the option to rematch the opponent
+		print("StartSearch() needed to reset server vars")
+		ocm_server_reset()
+		resetstate()
+	end
 
 	waitingforpvp = 1
 	delaybattletimer = 30
@@ -1383,13 +1465,17 @@ function StartSearch()
 	thisispvp = 1
 	prevsockettime = nil
 	fs_timerift = 0
+
 end
 
 function EndSearch()
-	debug("AAAAAAAAA")
+	debug("<--- menu")
 	waitingforpvp = 0
 	thisispvp = 0
 	spvp_connected = nil
+
+	resetstate()
+	resetnet()
 end
 
 
@@ -1676,7 +1762,6 @@ end
 function SendInputs()
 	-- Main routine for sending data to other players
 	if opponent and connected then
-
 		-- Get Frame Time
 		tinywait()
 		local frametime = getframetime()
@@ -1702,7 +1787,7 @@ function SendInputs()
 
 		-- Writing the Player Control Information subtable values.
 		ft[FID][1][1] = tostring(PLAYERNUM)
-		ft[FID][1][2] = tostring(memory.read_u32_le(InputStackLocal))
+		ft[FID][1][2] = tostring(memory.read_u32_le(InputStackLocal + (InputPointerVal*0x10)))
 		ft[FID][1][3] = FID
 		
 		-- Control Information Packet
@@ -1784,6 +1869,9 @@ function SetPlayerPorts()
 	memory.write_u8(InputData, PORTNUM)
 	--write input lag value
 	memory.write_u8(InputBufferLocal, BufferVal)
+	-- write extra input delay value
+	memory.write_u8(ExtraBufferAddr, ExtraBuffer)
+	
 
 	--if port # is odd then spawn on right side, if even then left side
 	if bit.check(PORTNUM,0) == true then
@@ -1798,7 +1886,7 @@ end
 function ApplyRemoteInputs()
 	if thisispvp == 0 then return end
 	if resimulating then return end 
-
+	InputPointerVal = memory.read_u8(InputPointer)
 	-- Send input data to the opponent
 	SendInputs()
 
@@ -1812,14 +1900,14 @@ function ApplyRemoteInputs()
 		--there are no other states I currently know of where rollback should be allowed
 	if memory.read_u8(0x02006CA1) == 0x0C then
 		--mark the latest input in the stack as unreceived. This will be undone when the corresponding input is received
-		memory.write_u8(InputStackRemote+1,0x1)
+		memory.write_u8(InputStackRemote+1 + (InputPointerVal*0x10),0x1)
 	else
 		--by default it copies the data from the previous frame, so we must intentionally clear the "unreceived" flag to prevent rollbacks
-		memory.write_u8(InputStackRemote+1,0)
+		memory.write_u8(InputStackRemote+1 + (InputPointerVal*0x10),0)
 	end
 
 	--write the last received input to the latest entry, This will be undone when the corresponding input is received
-	memory.write_u16_le(InputStackRemote+0x2, ari_lastinput)
+	memory.write_u16_le(InputStackRemote+2 + (InputPointerVal*0x10), ari_lastinput)
 	
 
 	--the iteration of the timestamp is now handled by the ROM
@@ -1842,15 +1930,9 @@ function ApplyRemoteInputs()
 		local nogoodpackets = nil
 
 
-		--it's possible for connection issues or serious stuttering to cause a larger amount of backlogged inputs. 
-		--There can be so many that it causes performance issues when attempting to write all of them in one frame.
-		--Which can become a bigger problem if so much time has passed that the target input is no longer in the stack.
-		--So for now, it will limit the amount of attempted writes while trying to go fast.
-		if TempTargetSpeed - TargetSpeed > 50 then	--framethrottle == true then
-			if #c == 0 or NumberSkipped >= #c or NumberSkipped > 20 then break end
-		else
-			if #c == 0 or NumberSkipped >= #c then break end
-		end
+		-- break if there are no more inputs that can be written this frame
+		if #c == 0 or NumberSkipped >= #c then break end
+
 
 		currentpacketprinter = currentpacket
 		if nogoodpackets then break end
@@ -1859,18 +1941,39 @@ function ApplyRemoteInputs()
 		--find the location of the timestamp that will be overwritten
 		--when tsmatch returns true, pointer will tell us how far down the stack it is
 		while tsmatch == false do
-			if (c[currentpacket][2] % 256) == memory.read_u8(InputStackRemote + pointer*0x10) then
-				tsmatch = true
+			local targetstamp = (c[currentpacket][2] % 256)
+
+			if ari_localtimestamp < targetstamp then
+				--local timestamp has reset, remote input hasn't
+				local vv = (0x100 - targetstamp + ari_localtimestamp)
+				pointer = InputPointerVal - vv
 			else
-				pointer = pointer + 1
-				if pointer > stacksize then pointer = 0 break end
+				-- normal condition
+				pointer = InputPointerVal - (ari_localtimestamp - targetstamp)
 			end
+			if pointer < 0 then
+				-- was at the beginning of the stack and wrapped around to the end
+				pointer = pointer + stacksize
+			end
+			if pointer < 0 or pointer >= stacksize then
+				-- pointer is out of bounds, do not attempt to read address using pointer
+				-- targetstamp is likely from a future frame and should not be applied yet, do not write
+				pointer = 0
+				break
+			end
+
+			if targetstamp == memory.read_u8(InputStackRemote + pointer*0x10) then
+				tsmatch = true
+				break
+			end
+
+			break
 		end
 
 
 		if tsmatch == true then
 
-			debugdraw(-8, d_pos5 +(12*debugaroony), bizstring.hex(0xC00000000 + c[currentpacket][2]))
+			debugdraw(-8, d_pos3 +(12*debugaroony), bizstring.hex(0xC00000000 + c[currentpacket][2]))
 			debugaroony = debugaroony + 1
 
 			if NumberSkipped > 0 then
@@ -1914,8 +2017,14 @@ function ApplyRemoteInputs()
 				--update the guess for unreceived inputs on slightly later frames
 				local iCorrected = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
 				local iStatus = nil
-				pointer = pointer - 1
-				while pointer > 0 do 
+				pointer = pointer + 1
+				if pointer >= stacksize then
+					pointer = pointer - stacksize
+				end
+				while pointer ~= InputPointerVal+1 do 
+					if pointer >= stacksize then
+						pointer = pointer - stacksize
+					end
 					local thisbyte = memory.read_u8(InputStackRemote + 0x1 + pointer*0x10)
 					iStatus = bit.check(thisbyte,1)
 					if iStatus == true then
@@ -1926,7 +2035,7 @@ function ApplyRemoteInputs()
 						--from the newer input, which is good. We do not want to replace those guesses with older inputs.
 						break 
 					end
-					pointer = pointer - 1 --point to the input immediately above
+					pointer = pointer + 1 --point to the input immediately above
 				end
 				--end of guess update code
 			end
@@ -1952,15 +2061,21 @@ function ApplyRemoteInputs()
 		--if no input was received this frame
 	--end
 
-	local pointer = 0
+	-- find the latest valid input from the remote player and keep track of it
+	local pointer = InputPointerVal
 	local stacksize = memory.read_u8(InputStackSize)
+	local checktracker = 1
 	while true do
 		if memory.read_u8(InputStackRemote + 0x1 + pointer*0x10) == 0 then
 			ari_lastinput = memory.read_u16_le(InputStackRemote + 0x2 + pointer*0x10)
 			break
 		else
-			pointer = pointer + 1
-			if pointer > stacksize then 
+			pointer = pointer - 1
+			if pointer < 0 then 
+				pointer = pointer + stacksize
+			end
+			checktracker = checktracker + 1
+			if checktracker >= stacksize then 
 				ari_lastinput = 0
 				break 
 			end
@@ -1968,29 +2083,30 @@ function ApplyRemoteInputs()
 	end
 
 	--[NEW EXPERIMENTAL CONDITIONAL] exit battle with the game's 'comm error' feature if players disconnect early
-	if connected == nil then
+	if should_disconnect then
+		should_disconnect = nil
 		memory.write_u8(EndBattleEarly, 0x1)
 	end
 
 	--detect when a guess input is about to be pushed out of the input stack
 
 	--local isdropped = memory.read_u8(InputStackRemote  + 0x1 + 0x100)
-	local isdropped = memory.read_u8(InputStackRemote + 0x1 + stacksize*0x10)
-	if isdropped ~= 0 then
-		ari_droppedcount = ari_droppedcount + 1
-		--local read_addr = memory.read_u8(InputStackRemote + 0x100)
-		local read_addr = memory.read_u8(InputStackRemote + stacksize*0x10)
-		--print(bizstring.hex(read_addr))
-	end
-	debugdraw(240 - 30, 160 - 12, ari_droppedcount)
+	--local isdropped = memory.read_u8(InputStackRemote + 0x1 + stacksize*0x10)
+	--if isdropped ~= 0 then
+	--	ari_droppedcount = ari_droppedcount + 1
+	--	--local read_addr = memory.read_u8(InputStackRemote + 0x100)
+	--	local read_addr = memory.read_u8(InputStackRemote + stacksize*0x10)
+	--	--print(bizstring.hex(read_addr))
+	--end
+	--debugdraw(240 - 30, 160 - 12, ari_droppedcount)
 
 		--debugging stuff
 	debugdraw(37, d_pos2, frametableSize)
 	local debuggingtimestamp = bizstring.hex(memory.read_u16_be(0x0203b380))
 	debugdraw(0, d_pos2, debuggingtimestamp)
 
-	debugdraw(-8, d_pos3, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackLocal + (memory.read_u8(InputBufferLocal)*0x10))))
-	debugdraw(-8, d_pos4, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackRemote + (memory.read_u8(InputBufferRemote)*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferRemote)))
+	-- debugdraw(-8, d_pos3, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackLocal + (InputPointerVal*0x10))))
+	-- debugdraw(-8, d_pos4, bizstring.hex(0xC00000000+ memory.read_u32_be(InputStackRemote + (InputPointerVal*0x10))).." "..bizstring.hex(memory.read_u8(InputBufferRemote)))
 	-- e
 
 end
@@ -2000,6 +2116,8 @@ end
 --
 -- PURPOSE:
 function closebattle()
+	if thisispvp == 0 then return end
+
 	while #save > 0 do
 		memorysavestate.removestate(save[#save])
 		table.remove(save,#save)
@@ -2016,9 +2134,15 @@ function closebattle()
 	--	opponent:send("disconnect")
 	--	opponent:close()
 	end
-	
-	resetstate()
-	--connectionform()
+
+	if direct_connect_mode then
+		resetstate()
+	else
+		print("resetting server vars & state")
+		ocm_server_reset()
+		resetstate()
+	end
+
 end
 
 
@@ -2027,71 +2151,95 @@ end
 -- PURPOSE:
 function Init_p2p_Connection()
 
-	while not connectedclient do
-		if PLAYERNUM == 1 then
-			if not(Init_p2p_Connection_looped) then
-				Init_p2p_Connection_looped = true
-				tcp:bind(HOST_IP, HOST_PORT)
+	if direct_connect_mode then
+		while connectedclient == "" do
+			if PLAYERNUM == 1 then
+				if not(Init_p2p_Connection_looped) then
+					Init_p2p_Connection_looped = true
+					tcp:bind(HOST_IP, HOST_PORT)
+				end
+				if connectedclient == "" then
+					while host_server == nil do
+						host_server, host_err = tcp:listen(1)
+						--emu.frameadvance()
+					end
+					if host_server == 1 then
+						connectedclient = tcp:accept()
+					end
+				end
+			else
+			-- Client
+				local err
+				if connectedclient == "" then
+					connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
+					while err == nil and connectedclient == "" do
+						emu.frameadvance()
+					end
+					if err == "already connected" then
+						connectedclient = 1
+					end
+				end
 			end
-			if connectedclient == nil then
-				while host_server == nil do
-					host_server, host_err = tcp:listen(1)
-					--emu.frameadvance()
-				end
-				if host_server == 1 then
-					connectedclient = tcp:accept()
-				end
-			end
-		else
-		-- Client
-			local err
-			if connectedclient == nil then
-				connectedclient, err = tcp:connect(HOST_IP, HOST_PORT)
-				while err == nil and connectedclient == nil do
-					emu.frameadvance()
-				end
-				if err == "already connected" then
-					connectedclient = 1
+		end
+	else
+		if not ip2p_timer then 
+			ip2p_timer = 420
+		end
+		mm:poll()
+		if connectedclient == "" then
+			local new_addr = ""
+			new_addr = mm:get_remote_addr()
+			if new_addr ~= "" then
+				connectedclient = new_addr
+				ip2p_timer = nil
+			else
+				if ip2p_timer > 0 then
+					ip2p_timer = ip2p_timer - 1
+				else
+					resetnet()
+					print("connection attempt timed out")
 				end
 			end
 		end
 	end
 
-	if connectedclient then
-		--debug(connectedclient)
-		connection_attempt_delay = nil
-		Init_p2p_Connection_looped = nil
-		host_server, host_err = nil
 
+	if connectedclient ~= "" then
 		defineopponent()
+		connection_attempt_delay = nil
 
-		if PLAYERNUM == 1 then
-			debug("Connected as Server.")
-			ip, port = connectedclient:getpeername()
-			connectedclient:close()
-			tcp:close()
-			opponent:setsockname(HOST_IP, HOST_PORT)
-			opponent:setpeername(ip, port)
-			--debug(ip)
+		if direct_connect_mode then
+			Init_p2p_Connection_looped = nil
+			host_server, host_err = nil
+			if PLAYERNUM == 1 then
+				debug("Connected as Server.")
+				ip, port = connectedclient:getpeername()
+				connectedclient:close()
+				tcp:close()
+				opponent:setsockname(HOST_IP, HOST_PORT)
+				opponent:setpeername(ip, port)
+			else
+				debug("Connected as Client.")
+				ip, port = tcp:getsockname()
+				tcp:close()
+				opponent:setsockname(ip, port)
+				opponent:setpeername(HOST_IP, HOST_PORT)
+			end
 		else
-	--		client.SetSoundOn(previousSound) -- retoggle back to the user's settings...
-			debug("Connected as Client.")
-			--give host priority to the server side
-		    memory.writebyte(0x0801A11C,0x1)
-		    memory.writebyte(0x0801A11D,0x5)
-		    memory.writebyte(0x0801A120,0x0)
-		    memory.writebyte(0x0801A121,0x2)
-			ip, port = tcp:getsockname()
-			tcp:close()
-			opponent:setsockname(ip, port)
-			opponent:setpeername(HOST_IP, HOST_PORT)
-			--debug(HOST_IP..", "..HOST_PORT)
+			-- server-based version
+			local address = mm:get_remote_addr():split(":")
+			opponent:setpeername(address[1], tonumber(address[2]))
+			if PLAYERNUM == 1 then
+				debug("Connected as Server.")
+			else
+				debug("Connected as Client.")
+			end
 		end
 		-- Finalize Connection
 		connected = true
 	end
 end
---coco = coroutine.create(function() Init_p2p_Connection() end)
+
 
 --
 --
@@ -2268,7 +2416,7 @@ end
 
 
 -- This function doesn't need to be understood or replicated.
--- debugging tool that's used to manually browse and load serialized frames
+-- it's a debugging tool that's used to manually browse and load serialized frames
 function loadsavestate()
 	statemenu = forms.newform(250,120,"Savestate",function() return nil end)
 	local windowsize = client.getwindowsize()
@@ -2279,7 +2427,7 @@ function loadsavestate()
 
 	textbox_rb = forms.textbox(statemenu,"1",40,24,nil,169,5)
 
-	checkbox_serial = forms.checkbox(statemenu,"Serialize",10,60)
+	checkbox_serial = forms.checkbox(statemenu,"Reserialize",10,60)
 
 	local function loadthatstate(incr)
 		return function()
@@ -2305,7 +2453,7 @@ function loadsavestate()
 
 	local function rollbackthatstate()
 		return function()
-			serialize = forms.ischecked(checkbox_serial)
+			debug_reserialize = forms.ischecked(checkbox_serial)
 
 			local i = forms.gettext(textbox_rb)
 			i = tonumber(i)
@@ -2318,7 +2466,13 @@ function loadsavestate()
 end
 enablestatedebug = nil
 
-function SearchPvP()
+function exit_ocm()
+	memory.write_u8(0x02006D53, 0x2)
+end
+
+function SearchDirectPvP()
+
+	if PLAYERNUM == 0 then return end
 
 	if connect_delay > 0 then
 		connect_delay = connect_delay - 1
@@ -2377,6 +2531,59 @@ function SearchPvP()
 	end
 end
 
+function StartServerPvP()
+	debugdraw(40, 120, "connecting to someone")
+
+	if opponent ~= nil then
+		tinywait()
+		local frametime = getframetime()
+		local FID = tostring(frametime)
+		table.insert(ftt, 1, FID)
+		ft[FID] = {{},{},{}}
+		ft[FID][3][1] = tostring(BufferVal)
+		ft[FID][3][2] = tostring(waitingforpvp)
+		
+		-- Waiting For PVP Packet
+		local send_payload = ("send,"..PLAYERNUM..","..FID.."|2,1,"..ft[FID][3][1].."|2,2,"..ft[FID][3][2].."|wt")
+		opponent:send(send_payload)
+		pl[FID] = send_payload
+		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+	end
+
+	if #wt == 0 then
+	else
+		if waitingforpvp == 1 then
+			waitingforpvp = 0
+		end
+		debugdraw(1, 120, wt[2])
+
+		if waitingforpvp == 0 and wt[2] == 0 then
+			delaybattletimer = delaybattletimer - 1
+		end
+		if delaybattletimer <= 0 then
+			ssp_connected = true
+			memory.write_u8(0x02006D53, 0x1)
+			--comm_menu_scene = 1
+
+		end
+	end
+
+	mm:poll()
+
+	if not ssp_timer then ssp_timer = 1000 end
+	if ssp_timer > 0 then 
+		ssp_timer = ssp_timer - 1
+		debugdraw(181, 146,"ssp " .. ssp_timer)
+	else
+		-- abandon the connection attempt and reset the network variables
+		--print("ssp_timer depleted")
+		ssp_timer = nil
+		ocm_server_reset()
+	end
+
+
+end
+
 function ShowRNGval()
 
 	local rng1 = bizstring.hex(memory.read_u32_le(0x02009800)) --main rng
@@ -2396,33 +2603,48 @@ function bbn3_netplay_mainloop()
 	--ShowRNGval()
 	--debugdraw(160, 5, getframetime())
 
-	if not(spvp_connected) and thisispvp == 1 then
-		SearchPvP()
-	end
-
-	--Reusable code for initializing the socket connection between players
-	if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
-
-		if not lane_time then
-			lane_time = lanes.gen( "math,package,string,table", {package={}},p2p_sniffer )
-			lain = lane_time(PLAYERNUM,HOST_IP,HOST_PORT,servermsg)
+	if direct_connect_mode then 
+		if not(spvp_connected) and thisispvp == 1 then
+			SearchDirectPvP()
+		end
+		--Reusable code for initializing the socket connection between players
+		if connected ~= true and waitingforpvp == 1 and PLAYERNUM > 0 then
+	
+			if not lane_time then
+				lane_time = lanes.gen( "math,package,string,table", {package={}},p2p_sniffer )
+				lain = lane_time(PLAYERNUM,HOST_IP,HOST_PORT,servermsg)
+			end
+	
+			if lain.status == "done" then
+				debug("Detected viable connection. ")
+				--emu.frameadvance()
+				--if not connected then print("not connected") end
+				--[[
+				--theoretical feature: receive connection info from a server, returned by the p2p_sniffer function
+				ret_IP = lain[1]
+				ret_PORT = lain[2]
+				ret_PLAYERNUM = lain[3]
+				]]
+				Init_p2p_Connection()
+	
+			elseif lain.status == "error" then
+				print("lane error")
+				print(lain[1] .." ".. lain[2].." ".. lain[3])
+			end
 		end
 
-		if lain.status == "done" then
-			debug("Detected viable connection. ")
-			--emu.frameadvance()
-			--if not connected then print("not connected") end
-			--[[
-			--theoretical feature: receive connection info from a server, returned by the p2p_sniffer function
-			ret_IP = lain[1]
-			ret_PORT = lain[2]
-			ret_PLAYERNUM = lain[3]
-			]]
-			Init_p2p_Connection() 
-
-		elseif lain.status == "error" then
-			print("lane error")
-			print(lain[1] .." ".. lain[2].." ".. lain[3])
+	else	-- initiate the connection menu
+		if thisispvp == 1 then
+			if waitingforpvp == 1 then
+				online_comm_menu()
+				if SESSION_CODE ~= "" and not connected then 
+					debug("start init_p2p")
+					Init_p2p_Connection()
+				end
+			end
+			if not(ssp_connected) and connected then
+				StartServerPvP()
+			end
 		end
 	end
 
@@ -2486,17 +2708,11 @@ end
 -- To be ran once by the main script. It initializes the data in this script and registers the opcode triggers for
 -- the netplay functions. This has to be ran first before other functions in here will work.
 function init_bbn3_netplay()
-
 	--define variables for gui.draw
 	gui_src()
 
 	resetnet()
 	resetstate()
-	connectionform()
-
-	while PLAYERNUM < 1 do
-		emu.frameadvance()
-	end
 
 	co = coroutine.create(function() receivepackets() end)
 	event.onframestart(FrameStart)
