@@ -349,11 +349,27 @@ end
 			else
 				debug("join request")
 			end
-			mm:poll()
 		end
+		if not mm_polltime then mm_polltime = 1 end
 		local j_new_sesh = ""
+
+		if mm_polltime == 1 then
+			mm_polltime = 2
+			mm:poll()
+		else
+			mm_polltime = 1
+		end
+
+		local join_status = mm:get_join_status()
+		debugdraw(5,118, join_status)
+
 		j_new_sesh = mm:get_remote_addr()
-		mm:poll()
+
+		if mm:did_join_fail() then
+			
+		end
+
+
 		if j_new_sesh ~= "" then
 			SESSION_CODE = j_new_sesh
 			mm_requested_join = nil
@@ -364,7 +380,7 @@ end
 	function ocm_openmatch()
 		if SESSION_CODE ~= "" then return end
 		if not ocm_om_firstjoin then
-			ocm_om_waiting = 90
+			ocm_om_waiting = 120
 			ocm_om_firstjoin = true
 			debug_in_openmatch = true
 		end
