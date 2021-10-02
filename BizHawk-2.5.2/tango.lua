@@ -268,6 +268,7 @@ end
 		ocm_om_waiting = nil
 		ocm_om_hosted = nil
 		new_code = nil
+		debug_in_openmatch = nil
 
 		resetnet()
 		StartSearch()
@@ -282,28 +283,24 @@ end
 			mm:create_session(isprivate)
 			debug("requested new session")
 		end
+		if not mm_polltime then mm_polltime = 1 end
 
-		local new_sesh = ""
-		
-		if not mm_getsesh then 
-			new_sesh = mm:get_session()
-			mm_polltime = 30
-			mm_getsesh = true
-		end
-		if mm_polltime and mm_polltime > 0 then
-			mm_polltime = mm_polltime - 1
-			if mm_polltime > 5 then
-				if (mm_polltime % 2 == 0) then
-					mm:poll()
-				end
-			end
+		local h_new_sesh = ""
+
+		if mm_polltime == 1 then
+			mm_polltime = 2
+			mm:poll()
 		else
-			mm_getsesh = nil
+			mm_polltime = 1
+		end
+		
+		h_new_sesh = mm:get_session()
+		if debug_in_openmatch then
+			debugdraw(40,118, h_new_sesh)
 		end
 
-
-		if string.len(new_sesh) ~= 0 then
-			new_code = new_sesh
+		if string.len(h_new_sesh) ~= 0 then
+			new_code = h_new_sesh
 			if isprivate and not mm_printedhostcode then
 				print(new_code)
 				mm_printedhostcode = true
@@ -313,7 +310,7 @@ end
 
 		if not new_code then
 			debugdraw(10,90, "getting session")
-		else
+		elseif debug_in_openmatch then
 			debugdraw(10,90, new_code)
 		end
 
@@ -328,7 +325,7 @@ end
 				--connectedclient = new_addr	-- maybe don't do this, it breaks things
 				mm_requested_new_session = nil
 				SESSION_CODE = new_code
-			else
+			elseif debug_in_openmatch then
 				debugdraw(10,100, "new_addr is \"\"")
 			end
 		else
@@ -357,11 +354,11 @@ end
 			end
 			mm:poll()
 		end
-		local new_sesh = ""
-		new_sesh = mm:get_remote_addr()
+		local j_new_sesh = ""
+		j_new_sesh = mm:get_remote_addr()
 		mm:poll()
-		if new_sesh ~= "" then
-			SESSION_CODE = new_sesh
+		if j_new_sesh ~= "" then
+			SESSION_CODE = j_new_sesh
 			mm_requested_join = nil
 			PLAYERNUM = 2
 		end
@@ -372,6 +369,7 @@ end
 		if not ocm_om_firstjoin then
 			ocm_om_waiting = 90
 			ocm_om_firstjoin = true
+			debug_in_openmatch = true
 		end
 		if ocm_om_hosted then
 			ocm_server_host()
@@ -383,6 +381,7 @@ end
 				debugdraw(5, 130, "join attempt")
 			else
 				ocm_om_hosted = true
+				resetnet()
 			end
 		end
 		if SESSION_CODE ~= "" then

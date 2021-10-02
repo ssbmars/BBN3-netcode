@@ -477,7 +477,7 @@ function resetnet()
 
 	opponent = nil
 
-	--if mm.socket then mm:close() end
+	if mm.socket then mm:close() end
 	mm:init("YZ0123", SERVER_IP, SERVER_PORT, 0)
 	if mm:check_config() == false then return end
 end
