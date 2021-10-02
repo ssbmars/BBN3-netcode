@@ -295,9 +295,6 @@ end
 		end
 		
 		h_new_sesh = mm:get_session()
-		if debug_in_openmatch then
-			debugdraw(40,118, h_new_sesh)
-		end
 
 		if string.len(h_new_sesh) ~= 0 then
 			new_code = h_new_sesh
@@ -326,7 +323,7 @@ end
 				mm_requested_new_session = nil
 				SESSION_CODE = new_code
 			elseif debug_in_openmatch then
-				debugdraw(10,100, "new_addr is \"\"")
+				debugdraw(10,100, "no joins yet")
 			end
 		else
 			debugdraw(10,100, "hmmm")
