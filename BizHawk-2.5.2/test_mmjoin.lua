@@ -31,7 +31,8 @@ if mm:check_config() == false then return end
 -- will join any public session
 mm:join_session()
 
-while(wait_count > 0 and not mm:did_join_fail()) do
+-- NOTE: will abort the loop if we fail or succeed (instant notification) 
+while(wait_count > 0 and mm:is_join_pending()) do
     wait_count = wait_count - 1
     print("wait_count: "..wait_count)
     mm:poll()

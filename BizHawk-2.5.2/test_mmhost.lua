@@ -39,7 +39,7 @@ end
 
 print("Server returned session code: "..mm:get_session())
 
-while(wait_count > 0) do
+while(wait_count > 0 and not mm:did_join_succeed()) do
     wait_count = wait_count - 1
     print("wait_count: "..wait_count)
     mm:poll()
@@ -52,7 +52,6 @@ local remote_addr = mm:get_remote_addr()
 
 if remote_addr ~= '' then
     print("joined session with remote "..remote_addr)
-    
     -- use the socket when connection is available!
     -- mm.socket 
 else 
