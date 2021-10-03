@@ -185,6 +185,14 @@ function lib:did_join_fail()
     return self.join_status == "failed"
 end
 
+function lib:did_join_succeed()
+    return self.join_status == "success"
+end
+
+function lib:is_join_pending()
+    return self.join_status == "pending"
+end
+
 function lib:get_join_status() 
     return self.join_status
 end
@@ -248,6 +256,8 @@ function lib:create_session(password_protected)
             }
 
             send_packet(self, self.next_packet_id, PacketHeader.Create, data)
+            self.is_joining = true
+            self.join_status = "pending"
         else 
             self:_debug_print("You have a session already @ "..self.session_key)
         end
@@ -285,6 +295,8 @@ function lib:close_session()
 
         send_packet(self, self.next_packet_id, PacketHeader.Close, {})
         self.session_key = ""
+        self.join_status = ""
+        self.is_joining = false
     end
 end
 
