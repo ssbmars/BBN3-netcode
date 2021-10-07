@@ -672,6 +672,96 @@ end
 	end
 
 
+	function sm_changelanguage(pointer)
+
+		local new_lang = config[language]
+		local lang_index = language_opt[2]	-- this global var is used to define the language choices
+		local minopt = 1
+		local maxopt = 0	-- gets defined in the for-loop below
+		local lang_pos		-- same here
+		local verbose_index = {
+				["ENG"] = "English",
+				["ESP"] = "Español",
+				["JP"] = "日本語",
+				["GER"] = "Deutsch",
+				["FRE"] = "français",
+				}
+		local lang_verbose = verbose_index[new_lang]
+
+		for ii, vv in pairs(lang_index) do -- count how many languages are defined in the settings
+			-- ii is position number
+			-- vv is table value
+			maxopt = maxopt + 1
+			if new_lang == vv then
+				lang_pos = ii -- default the initial selection to the currently chosen language
+			end
+		end
+		
+		local function update_lang()
+			new_lang = lang_index[lang_pos]
+			lang_verbose = verbose_index[new_lang]
+		end
+
+		while true do
+			proc_ctrl()
+			if c_r_A or c_r_Start then
+				--update the database then break loop
+				saveconfig(language, new_lang)
+				sm_init_settings()
+				proc_ctrl()
+				break
+			end
+			-- B button = exit without saving choice
+			if c_r_B then
+				-- break loop
+				proc_ctrl()
+				break
+			end
+
+			if c_p_Up then
+				if not ((lang_pos - 1) < minopt) then
+					lang_pos = lang_pos - 1
+				else
+					lang_pos = maxopt
+				end
+				update_lang()
+
+			elseif c_p_Down then
+				if not ((lang_pos + 1) > maxopt) then
+					lang_pos = lang_pos + 1
+				else
+					lang_pos = minopt
+				end
+				update_lang()
+			end
+
+			-- the name of the setting
+			gui.drawText(x_center, y_center/2 - 20, settings[pointer][1],nil,nil,12,"Arial",nil, "Center")
+
+			-- draw arrows
+			--if lang_pos > minopt then
+				drawArrow(0, 1, 1, x_center, y_center/2 )
+			--end
+			--if lang_pos < maxopt then
+				drawArrow(1, 1, 1, x_center, y_center/2 + 38)
+			--end
+			-- current selection
+			gui.drawText(x_center - 20, y_center/2 + 20, lang_verbose,nil,nil,12,"Arial",nil, nil)
+			
+			-- select flag
+			local yoff = lang_pos - 1
+			gui.drawImageRegion(flags, 15, yoff*9, 15, 9, x_center - 40, 3 + y_center/2 + 20)
+
+			local description = settings[smpos_y][4]
+			gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
+			gui.drawImage(settings_footer, 0, 0)
+
+			emu.frameadvance()
+		end
+	end
+
+
+
 	--German translations provided by Zulleyy3
 	--Japanese translations provided by exe_race
 	--Spanish translations provided by PachecoElSublime & Pit Rjul
@@ -771,7 +861,7 @@ end
 		--options
 		-- "checkmark" , "flag", or "function"
 		username_opt = {"function", tablefunc = sm_changename }
-		language_opt = {"flag" , {"ENG", "ESP", "JP", "GER"}}
+		language_opt = {"flag" , {"ENG", "ESP", "JP", "GER"}, tablefunc = sm_changelanguage}
 		bool_opt = {"checkmark", {"true", "false"}}
 		buffer_opts = {"buffer",1,9, tablefunc = sm_changebuffer}
 	
@@ -890,7 +980,9 @@ end
 			end
 	
 		elseif opt_type == "flag" then
-			local limit = #settings[pointer][3][2]
+			local dofunc = settings[pointer][3].tablefunc(pointer)
+			
+			--[[local limit = #settings[pointer][3][2]
 			for i=1, limit do
 				if current == settings[pointer][3][2][i] then
 					--increment up by 1, or loop back to 1 if at the max value
@@ -903,7 +995,7 @@ end
 				end
 			end
 
-			sm_init_settings()
+			sm_init_settings()]]
 
 		elseif opt_type == "buffer" then
 			local dofunc = settings[pointer][3].tablefunc(pointer)
