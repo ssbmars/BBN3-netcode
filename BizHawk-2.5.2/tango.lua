@@ -243,7 +243,7 @@ end
 			else
 				gui.drawImage("gui_Sprites\\temp\\button_A.png", 9, 100)
 			end
-			gui.drawText(28, 100, "copied",nil,nil,12, "Arial")
+			gui.drawText(28, 100, clip_copy_confirm,nil,nil,12, "Arial")
 			if vis_cc_a_timer > 0 then
 				vis_cc_a_timer = vis_cc_a_timer - 1
 			else
@@ -251,7 +251,7 @@ end
 			end
 		else
 			gui.drawImage("gui_Sprites\\temp\\button_A.png", 9, 100)
-			gui.drawText(28, 100, "copy to clipboard",nil,nil,12, "Arial")
+			gui.drawText(28, 100, clip_copy_prompt,nil,nil,12, "Arial")
 		end
 	end
 
@@ -305,11 +305,11 @@ end
 		end
 
 
-		if not new_code then
-			debugdraw(10,90, "getting session")
-		elseif debug_in_openmatch then
-			debugdraw(10,90, new_code)
-		end
+		--if not new_code then
+		--	debugdraw(10,90, "getting session")
+		--elseif debug_in_openmatch then
+		--	debugdraw(10,90, new_code)
+		--end
 
 		if new_code and connectedclient == "" then
 			local new_addr = ""
@@ -326,7 +326,7 @@ end
 				debugdraw(10,100, "no joins yet")
 			end
 		else
-			debugdraw(10,100, "hmmm")
+			--debugdraw(10,100, "hmmm")
 		end
 
 	end
@@ -488,94 +488,114 @@ end
 
 		local l = config[language]
 
+		-- misc strings
+			clip_copy_prompt = {
+					["ENG"] = "copy to clipboard",
+					["ESP"] = "",
+					["JP"] = "クリップボードへコピー",
+					["GER"] = "",
+				}
+				clip_copy_prompt = clip_copy_prompt[l]
+
+			clip_copy_confirm = {
+					["ENG"] = "copied",
+					["ESP"] = "",
+					["JP"] = "コピー成功",
+					["GER"] = "",
+				}
+				clip_copy_confirm = clip_copy_confirm[l]
+
+		-- close
+
+
 		-- menu option names
 			opt_matchmaking_name = {
 					["ENG"] = "Open Matchmaking",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Emparejamiento Abierto",
+					["JP"] = "オープンマッチング",
+					["GER"] = "Offenes Matchmaking",
 				}
 	
 				opt_password_name = {
 					["ENG"] = "Private NetBattle",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "NetBattle Privada",
+					["JP"] = "プライベートマッチング",
+					["GER"] = "private Netbattle",
 				}
 	
 				opt_host_code_name = {
 					["ENG"] = "Host Session",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Crear Sesión",
+					["JP"] = "ルーム作成",
+					["GER"] = "Session erstellen",
 				}
 	
 				opt_join_code_name = {
 					["ENG"] = "Join Session",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Unirse a Sesión",
+					["JP"] = "ルームの加入",
+					["GER"] = "Session beitreten",
 				}
 	
 				opt_direct_name = {
 					["ENG"] = "Direct IP",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "IP Directa",
+					["JP"] = "IPアドレス",
+					["GER"] = "Direkte IP",
 				}
 	
 				opt_host_name = {
 					["ENG"] = "Host match",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Crear Partida",
+					["JP"] = "ホスト",
+					["GER"] = "Match erstellen",
 				}
 	
 				opt_client_name = {
 					["ENG"] = "Join as Client",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Unirse como Cliente",
+					["JP"] = "クライアント",
+					["GER"] = "Als Client beitreten",
 				}
 	
 			ocm_menu_name = {
 				["ENG"] = "Online Comm Menu",
-				["ESP"] = "",
-				["JP"] = "",
-				["GER"] = "",
+				["ESP"] = "Menu de Comm en Linea",
+				["JP"] = "オンライン通信メニュー",
+				["GER"] = "Online-Komm Menü",
 			}
 		-- close
 
 		-- descriptive text
 			opt_host_code_hover = {
 					["ENG"] = "Creates a private session code.\nSend the code to the other player.",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Crea un código de sesión privada.\nEnvia este código al otro jugador.",
+					["JP"] = "プライベートルームコードを生成し\n相手プレイヤーに送信します",
+					["GER"] = "Erstellt einen Code für eine private\nSession. Sende den Code an deinem\nMitspieler.",
 				}
 				opt_host_code_hover = opt_host_code_hover[l]
 
 			opt_join_code_hover = {
 					["ENG"] = "Join a private session. Uses code\ncopied from clipboard.",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "Unirse a una sesión privada.\nUsa el código copiado en el portapapeles.",
+					["JP"] = "プライベートルームに加入します。\nクリップボードからコードを読み取ります。",
+					["GER"] = "Tritt einer privaten Session bei. Nutzt\neinen aus der Zwischenablage kopierten\nCode.",
 				}
 				opt_join_code_hover = opt_join_code_hover[l]
 
 			opt_host_hover = {
 					["ENG"] = "Does not use the matchmaking server.\nHost using direct IP connection.\nRequires LAN or portforwarding.",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "No usa el servidor de emparejamiento.\nCrea la partida con conexión de IP Directa.\nRequiere LAN o apertura de puertos.",
+					["JP"] = "マッチングサーバーを経由せず、\nホストとして直接通信します。\nLANケーブルの設定が必要です。",
+					["GER"] = "Erstellt das Match mittels direkter\nIP-Verbindung. Setzt lokale\nNetzwerkverbindung oder\nPortweiterleitung voraus. ",
 				}
 				opt_host_hover = opt_host_hover[l]
 
 			opt_client_hover = {
 					["ENG"] = "Does not use the matchmaking server.\nConnect to the IP address of the host.\nUses IP copied from clipboard.",
-					["ESP"] = "",
-					["JP"] = "",
-					["GER"] = "",
+					["ESP"] = "No usa el servidor de emparejamiento.\nConectate a la Dirección IP del host.\nUsa la IP copiada en tu portapapeles.",
+					["JP"] = "マッチングサーバーを経由せず、\nクライアントとして直接通信します。\nクリップボードからIPアドレスを\n読み込みます。",
+					["GER"] = "Nutzt den matchmaking server nicht.\nErstellt das Match mittels direkter\nIP-Verbindung. Nutzt eine aus der\nZwischenablage kopierte IP.",
 				}
 				opt_client_hover = opt_client_hover[l]
 
@@ -798,7 +818,7 @@ end
 
 		--gui.drawImage("gui_Sprites/temp/test_bg.png",0,0)
 		gui.drawImage("gui_Sprites/temp/testmenu.png",0,0)
-		gui.drawText(20, -1, ocm_menu_opt[comm_menu_scene].scenename)
+		gui.drawText(20, 1, ocm_menu_opt[comm_menu_scene].scenename)
 
 		-- menu options are the only table entries that aren't named variables, so they're the only
 		-- items in the table that will cause the table to return a nonzero value if you read #table

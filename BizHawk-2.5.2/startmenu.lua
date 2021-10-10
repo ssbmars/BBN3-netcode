@@ -435,8 +435,14 @@ end
 			mm_fr_romname = "the rom"
 		end
 		if not mm_fr_start_rom then
-			gui.drawText(x_max/2, 40, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
-			gui.drawText(x_max/2, 60, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+			if config[language] ~= "JP" then
+				gui.drawText(x_max/2, 40, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
+				gui.drawText(x_max/2, 60, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+			else
+				gui.drawText(x_max/2, 40, mm_fr_romname..str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
+				--gui.drawText(x_max/2, 40, mm_fr_romname, nil,nil, 12,"Arial", nil, "middle")
+				--gui.drawText(x_max/2, 60, str_romprompt1, nil,nil, 12,"Arial", nil, "middle")
+			end
 			--gui.drawText(x_max/2, 75, "• filename doesn't matter \n• must be a .gba file", nil,nil, 12,"Arial", nil, "middle")
 		else
 			local maxkf = 3
@@ -664,8 +670,13 @@ end
 			gui.drawText(x_center, y_center/2 - 20, settings[pointer][1],nil,nil,12,"Arial",nil, "Center")
 
 			local description = settings[smpos_y][4]
-			gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
-			gui.drawImage(settings_footer, 0, 0)
+			local footer_y = 0
+			if visible_settings < visible_settings_picker[1] then
+				footer_y = visible_settings - visible_settings_picker[1]
+				footer_y = sm_sm_pos(footer_y, true, true)
+			end
+			gui.drawImage(settings_footer, 0, footer_y)
+			gui.drawText(x_max/2, 116 + footer_y, description,nil,nil,12, "Arial", nil, "middle","top")
 
 			emu.frameadvance()
 		end
@@ -753,12 +764,12 @@ end
 			gui.drawImageRegion(flags, 15, yoff*9, 15, 9, x_center - 40, 3 + y_center/2 + 20)
 
 			local description = settings[smpos_y][4]
-			gui.drawText(x_max/2, 115, description,nil,nil,12, "Arial", nil, "middle","top")
+			gui.drawText(x_max/2, 116, description,nil,nil,12, "Arial", nil, "middle","top")
 			gui.drawImage(settings_footer, 0, 0)
 
 			emu.frameadvance()
 		end
-	end
+	end	
 
 
 
@@ -779,8 +790,8 @@ end
 		delay_buffer_name = {
 		["ENG"] = "Delay Buffer",
 		["ESP"] = "Delay Buffer",
-		["JP"] = "Delay Buffer",
-		["GER"] = "Delay Buffer",
+		["JP"] = "遅延バッファ",
+		["GER"] = "Delay-Puffer",
 		}
 		language_name = {
 		["ENG"] = "Language", 
@@ -822,9 +833,9 @@ end
 		}
 		delay_buffer_desc = {
 		["ENG"] = "Higher values will increase input delay\nbut reduce the amount of visual\nhiccups during laggy matches.",
-		["ESP"] = "",
-		["JP"] = "",
-		["GER"] = "",
+		["ESP"] = "Valores más altos incrementarán\nel retraso de inputs, pero reduciran los\nproblemas visuales en las partidas",
+		["JP"] = "遅延が発生しやすい試合の場合\nこの値を大きくしてください\n入力遅延が大きくなりますが\n映像の乱れが軽減されます",
+		["GER"] = "Höhere Werte erhöhen die\nEingabeverzögerung, aber verringern die\nMenge der visuellen Probleme falls\nPartien in Lag stattfinden.",
 		}
 		language_desc = {
 		["ENG"] = "Change the language used by \nthe netplay interface",
@@ -876,7 +887,14 @@ end
 			{remember_version_name[l], remember_version, bool_opt, remember_version_desc[l]}
 		}
 	
-		visible_settings = 5
+		visible_settings_picker = {5, ["GER"] = 4, ["JP"] = 4 }
+
+		if visible_settings_picker[config[language]] then 
+			visible_settings = visible_settings_picker[config[language]]
+		else
+			visible_settings = visible_settings_picker[1]
+		end
+		
 
 		--general menu text
 
@@ -885,7 +903,7 @@ end
 		str_romprompt1 = {
 		["ENG"] = "Please locate a clean copy of",
 		["ESP"] = "Por favor busca una copia limpia de",
-		["JP"] = "",
+		["JP"] = " の正規ROMを\n検索してください",
 		["GER"] = "Wähle eine frische Kopie des Spiels:"
 		}
 
@@ -893,7 +911,7 @@ end
 		str_romprompt2 = {
 		["ENG"] = "Press [ A ] to Locate ROM",
 		["ESP"] = "Presiona [ A ] para seleccionarla",
-		["JP"] = "",
+		["JP"] = "Aボタンを押すとROMを検索します",
 		["GER"] = "Drücke A, um eine ROM auszuwählen."
 		}
 
@@ -981,7 +999,7 @@ end
 	
 		elseif opt_type == "flag" then
 			local dofunc = settings[pointer][3].tablefunc(pointer)
-			
+
 			--[[local limit = #settings[pointer][3][2]
 			for i=1, limit do
 				if current == settings[pointer][3][2][i] then
@@ -1071,11 +1089,15 @@ end
 		end
 	end
 	
-	function sm_sm_pos(sm_sm_v)
-		local value = (sm_sm_v*18) -7
+	function sm_sm_pos(sm_sm_v, skip, is_footer)
+		local xtra_offset = 7
+		if is_footer then
+			xtra_offset = 0
+		end
+		local value = (sm_sm_v*18) - xtra_offset
 
 		local extraval
-		if press_delay and (listpos == 1 or listpos == visible_settings) and p_listpos == listpos and p_smpos_y ~= smpos_y then
+		if not(skip) and press_delay and (listpos == 1 or listpos == visible_settings) and p_listpos == listpos and p_smpos_y ~= smpos_y then
 			extraval = press_delay*3
 			if p_smpos_y > smpos_y then
 				extraval = -1 * extraval
@@ -1121,13 +1143,13 @@ end
 			end
 			if i == visible_settings and settings[offset+1] then
 				--draw the down arrow
-				sm_sm_arrow1, sm_sm_arroff1 = drawArrow(1, sm_sm_arrow1, sm_sm_arroff1, x_max/2, sm_sm_pos(visible_settings + 1))
+				sm_sm_arrow1, sm_sm_arroff1 = drawArrow(1, sm_sm_arrow1, sm_sm_arroff1, x_max/2, sm_sm_pos(visible_settings + 1, true))
 			end
 		end
 
 		--draw the arrow that shows which setting is currently selected
 		--gui.drawImage(arrow_right, 10, sm_sm_pos(listpos) + 2)
-		sm_sm_arrow3, sm_sm_arroff3 = drawArrow(3, sm_sm_arrow3, sm_sm_arroff3, 10, sm_sm_pos(listpos) + 0)
+		sm_sm_arrow3, sm_sm_arroff3 = drawArrow(3, sm_sm_arrow3, sm_sm_arroff3, 10, sm_sm_pos(listpos, true) + 0)
 	
 		--display the description of the currently selected setting
 		local description = settings[smpos_y][4]
@@ -1141,9 +1163,14 @@ end
 				descdraw_origin = "left"
 			end
 		--end of debug stuff
-		gui.drawText(descdraw_x, 115, description,nil,nil,12, "Arial", nil, descdraw_origin,"top")
-		gui.drawImage(settings_footer, 0, 0)
+		local footer_y = 0
+		if visible_settings < visible_settings_picker[1] then
+			footer_y = visible_settings - visible_settings_picker[1]
+			footer_y = sm_sm_pos(footer_y, true, true)
+		end
+		gui.drawImage(settings_footer, 0, footer_y)
 
+		gui.drawText(descdraw_x, 116 + footer_y, description,nil,nil,12, "Arial", nil, descdraw_origin,"top")
 		
 		if press_delay then
 			press_delay = press_delay - 1
