@@ -660,7 +660,9 @@ function ocm_directip(is_host)
 	else
 		PLAYERNUM = 2
 		input = winapi.get_clipboard()
-		input = string.gsub(input, "%s+", "")
+		if type(input) == "string" then
+			input = string.gsub(input, "%s+", "")
+		end
 		if isIP(input) then
 			HOST_IP = input
 			print("am client")
@@ -933,7 +935,7 @@ function Battle_Vis()
 	end
 
 	--start of time syncing code
-	if coroutine.status(co) == "suspended" then coroutine.resume(co) end
+		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 		if clock_dif and not(SB_sent_packet) then
 			SB_sent_packet = true
 			tinywait()
@@ -1492,7 +1494,9 @@ function ClockSync()
 	--new code for synchronizing clocks
 	--run a number of pings in order to determine the median difference between system clock values
 	--stay in a loop while waiting for the round-trip packet 
+	local cs_max_timeout = 400
 	if PLAYERNUM == 1 and not(clock_dif) then
+		if not cs_timeout then cs_timeout = 0 end
 		if #wfp_val < clocksync_looptimes then
 			if not(wfp_local_req) then
 				--this stalls until the frametimes are different enough to not be interpreted as a dupe
@@ -1531,7 +1535,17 @@ function ClockSync()
 				end
 			end
 
-			if not(wfp_remote_got) then return end
+
+			if not(wfp_remote_got) then 
+				-- host: check if connection to client has timed out
+				cs_timeout = cs_timeout + 1
+				if cs_timeout > cs_max_timeout then 
+					-- host: abort connection
+
+				end
+				-- data hasn't been received from client yet, return
+				return 
+			end
 
 			--https://en.wikipedia.org/wiki/Network_Time_Protocol
 			--clock synchronization algorithm
@@ -1561,6 +1575,7 @@ function ClockSync()
 			--wfp_local_got = nil
 			wfp_remote_got = nil
 			wfp_remote_sent = nil
+			cs_timeout = 0
 		end
 
 		if #wfp_val < clocksync_looptimes then return end
@@ -1609,12 +1624,14 @@ function ClockSync()
 
 	elseif not(clock_dif) then
 		--version for the client
+		if not cs_timeout then cs_timeout = 0 end
 		if coroutine.status(co) == "suspended" then coroutine.resume(co) end
 
 		if #wt2 == 3 and wt2[3] == 0  then
 			clock_dif = math.floor(wt2[1] *(-1))
 			wt2 = {}
 			wfp_SyncFinished = true
+			cs_timeout = 0
 		end
 
 		if #wt2 == 1 then
@@ -1637,6 +1654,7 @@ function ClockSync()
 			if #wt2 == 1 then	--apparently this doesn't always return true, and that would break things
 				wt2 = {}
 			end
+			cs_timeout = 0	-- client: reset timeout tracker
 		end
 
 		if ft[ftt[1]] ~= nil then
@@ -1651,6 +1669,14 @@ function ClockSync()
 			--wfp_local_got = nil
 			wfp_remote_got = nil
 			wfp_remote_sent = nil
+			cs_timeout = nil
+		else
+			-- client: check if the connection to host has timed out
+			cs_timeout = cs_timeout + 1
+			if cs_timeout > cs_max_timeout then
+				-- abort connection
+
+			end
 		end
 	end
 	--end of new code
