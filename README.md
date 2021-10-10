@@ -1,9 +1,16 @@
+
+
 # Experimental BBN3 Netplay
 
 The main netplay script is "\BizHawk-2.5.2\bbn3_netplay.lua"
 
 There are two batch files for launching the netplay script. "Launch Netplay.bat" in the root directory will load one instance.
 There is also a "load tango double.bat" file in the BizHawk folder which will launch two local instances, good for testing stuff on local host.
+
+## BizHawk prerequisite installer
+This netplay solution uses the scripting features provided by BizHawk emulator.  
+This installer needs to be ran once before BizHawk will work properly.  
+https://github.com/TASVideos/BizHawk-Prereqs/releases
 
 
 # Misc
