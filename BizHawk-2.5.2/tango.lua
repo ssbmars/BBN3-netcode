@@ -491,7 +491,7 @@ end
 		-- misc strings
 			clip_copy_prompt = {
 					["ENG"] = "copy to clipboard",
-					["ESP"] = "",
+					["ESP"] = "Copiar al Portapapeles",
 					["JP"] = "クリップボードへコピー",
 					["GER"] = "",
 				}
@@ -499,7 +499,7 @@ end
 
 			clip_copy_confirm = {
 					["ENG"] = "copied",
-					["ESP"] = "",
+					["ESP"] = "Copiado",
 					["JP"] = "コピー成功",
 					["GER"] = "",
 				}
@@ -738,12 +738,17 @@ end
 			-- direct ip host match function
 			[7] = {
 				clickfunc_arg = true, 
-				clickfunc = ocm_directip
+				clickfunc = ocm_directip,
+				exitdest = 4,
+				exitcursor = 1,
 				},
 			-- direct ip connect as client function
 			[8] = {
 				clickfunc_arg = false, 
-				clickfunc = ocm_directip
+				clickfunc = ocm_directip,
+				startcursor = 2,
+				exitdest = 4,
+				exitcursor = 2,
 				}
 		}
 	end
@@ -758,7 +763,12 @@ end
 				if ocm_menu_opt[comm_menu_scene][ocm_pos_y].tabledest then
 						ocm_choice_anim = true
 						comm_menu_scene = ocm_menu_opt[comm_menu_scene][ocm_pos_y].tabledest
-						ocm_pos_y = 1
+
+						if ocm_menu_opt[comm_menu_scene].startcursor then
+							ocm_pos_y = ocm_menu_opt[comm_menu_scene].startcursor
+						else
+							ocm_pos_y = 1
+						end
 					if ocm_menu_opt[comm_menu_scene].clickfunc then
 						local arg = ocm_menu_opt[comm_menu_scene].clickfunc_arg
 						local dofunc = ocm_menu_opt[comm_menu_scene].clickfunc(arg)
