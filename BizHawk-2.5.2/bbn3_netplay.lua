@@ -293,10 +293,11 @@ mm = require("matchmaker.matchmaker")
 	
 	
 	function preconnect()
-
 		if direct_connect_mode then
-			lanes = require "lanes"
-			lanes.configure{with_timers = false}
+			if not lanes then
+				lanes = require "lanes"
+				lanes.configure{with_timers = false}
+			end
 
 			-- Check if either Host or Client
 			tcp = socket.tcp()
@@ -474,6 +475,7 @@ function resetnet()
 	ip2p_timer = nil
 	ssp_connected = nil
 	ssp_timer = nil
+	directip_connected = nil
 
 	opponent = nil
 
@@ -651,6 +653,15 @@ end
 
 
 function ocm_directip(is_host)
+
+	if directip_connected then 
+		connected = true
+		directip_connected = nil
+		direct_connect_mode = true
+		return
+	end
+
+
 	local input
 	local badip = nil
 	if is_host then
@@ -659,20 +670,27 @@ function ocm_directip(is_host)
 		print("am host")
 	else
 		PLAYERNUM = 2
-		input = winapi.get_clipboard()
-		if type(input) == "string" then
-			input = string.gsub(input, "%s+", "")
-		end
-		if isIP(input) then
-			HOST_IP = input
-			print("am client")
+		if backup_HOST_IP then 
+			HOST_IP = backup_HOST_IP
 		else
-			badip = true
+			input = winapi.get_clipboard()
+			if type(input) == "string" then
+				input = string.gsub(input, "%s+", "")
+			else
+				input = HOST_IP -- reverts to the default (localhost)
+			end
+			if isIP(input) then
+				HOST_IP = input
+				print("am client")
+			else
+				badip = true
+			end
 		end
 	end
 	if badip then 
 		return
 	end
+
 	HOST_PORT = 5738
 	direct_connect_mode = true
 	preconnect()
@@ -1451,7 +1469,7 @@ end
 function StartSearch()
 	memory.write_u8(0x02006D53, 0x0)
 	print("StartSearch() ran")
-	if opponent then
+	if opponent and not directip_connected then
 		--this will be the context for whether to show the option to rematch the opponent
 		print("StartSearch() needed to reset server vars")
 		ocm_server_reset()
@@ -1477,7 +1495,9 @@ function EndSearch()
 	spvp_connected = nil
 
 	resetstate()
-	resetnet()
+	if not directip_connected then
+		resetnet()
+	end
 end
 
 
@@ -2162,7 +2182,14 @@ function closebattle()
 	end
 
 	if direct_connect_mode then
+		backup_HOST_IP = HOST_IP
+		directip_connected = true
 		resetstate()
+		comm_menu_scene = 4
+		connected = nil
+		direct_connect_mode = nil
+		-- it might be better to completely reset
+		resetnet()
 	else
 		print("resetting server vars & state")
 		ocm_server_reset()
