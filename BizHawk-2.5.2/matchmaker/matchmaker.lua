@@ -178,7 +178,12 @@ local function read_packet(ctx, bytestream)
     end
 
     -- send the ack packet to the server
-    send_packet(ctx, ctx.next_packet_id, PacketHeader.Ack, { id = packet_id })
+    if packet_id then
+        send_packet(ctx, ctx.next_packet_id, PacketHeader.Ack, { id = packet_id })
+    else
+        print("packet_id was nil")
+    end
+
 end
 
 function lib:did_join_fail() 
