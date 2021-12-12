@@ -587,43 +587,252 @@ end
 
 --settingsmenu functions defined here
 
-	
-	function sm_changename()
+	--[[ important to know about these functions
+	when exiting them with an input that would also do something in the settings menu, you must keep two things in mind:
+	1) update the inputs one more time so that the settings menu doesn't 
+		respond to the same inputs that resulted in the previous function being exited.
+		You can do this by running proc_ctrl right before breaking the loop
+
+	2) the settings menu responds to input releases, not the initial presses.
+		So the exit conditions in these functions need to respond to input releases as well.
+		Otherwise the input will be registered twice anyways.
+	]]
+
+	function christian_server(string_arg)
+		-- return true if the string is valid and inoffensive
+		-- return false if there is a problem with the string
+		-- can also return a reason why the string was rejected
+		--[[reasons:
+			"type" = arg is not a string
+			"length" = string is empty or not long enough
+			"bad" = offensive language detected
+		]]
+		if type(string_arg) ~= "string" then
+			--print("arg for christian_server() needs to be a string")
+			return false, "type"
+		end
+		if string.len(string_arg) < 3 then
+			return false, "length"
+		end
+
+		return true
+	end
+
+
+	function sm_changename(pointer)
 		if not printednamechangemsg then
 			print("name change is not yet implemented")
 			printednamechangemsg = true
 		end
-		return
+		--return
 
 
-	--	local validkey = {
-	--	["A"] = "a",["B"] = "b",["C"] = "c",["D"] = "d",["E"] = "e",["F"] = "f",["G"] = "g",["H"] = "h"
-	--}
-	--	["I" = "i"},["J" = "j"},["K" = "k"},["L" = "l"},["M" = "m"},["N" = "n"},["O" = "o"},["P" = "p"},["Q" = "q"},
-	--	["R" = "r"},["S" = "s"},["T" = "t"},["U" = "u"},["V" = "v"},["W" = "w"},["X" = "x"},["Y" = "y"},["Z" = "z"},
-	--	["Shift+A" = ""},["Shift+B" = ""},["Shift+C" = ""},["Shift+D" = ""},["Shift+E" = ""},
-	--	["Shift+F" = ""},["Shift+G" = ""},["Shift+H" = ""},["Shift+I" = ""},
-	--	["Shift+J" = ""},["Shift+K" = ""},["Shift+L" = ""},["Shift+M" = ""},
-	--	["Shift+N" = ""},["Shift+P" = ""},["Shift+Q" = ""},["Shift+R" = ""},
-	--	{"Shift+S" = ""},["Shift+T" = ""},["Shift+U" = ""},["Shift+V" = ""},
-	--	["Shift+W" = ""},["Shift+X" = ""},["Shift+Y" = ""},["Shift+Z" = ""},
-	--	{"Minus" = ""},{"Shift+Minus" = ""}
-	--}
+		local validkey = {
+			-- the table positions as keys are defined according to bizhawk's input.get() function.
+			-- These strings have to match exactly, capitalization matters.
+			["A"] = "a",
+			["B"] = "b",
+			["C"] = "c",
+			["D"] = "d",
+			["E"] = "e",
+			["F"] = "f",
+			["G"] = "g",
+			["H"] = "h",
+			["I"] = "i",
+			["J"] = "j",
+			["K"] = "k",
+			["L"] = "l",
+			["M"] = "m",
+			["N"] = "n",
+			["O"] = "o",
+			["P"] = "p",
+			["Q"] = "q",
+			["R"] = "r",
+			["S"] = "s",
+			["T"] = "t",
+			["U"] = "u",
+			["V"] = "v",
+			["W"] = "w",
+			["X"] = "x",
+			["Y"] = "y",
+			["Z"] = "z",
+			["Number0"] = "0",
+			["Number1"] = "1",
+			["Number2"] = "2",
+			["Number3"] = "3",
+			["Number4"] = "4",
+			["Number5"] = "5",
+			["Number6"] = "6",
+			["Number7"] = "7",
+			["Number8"] = "8",
+			["Number9"] = "9",
+			["Minus"] = "_",
+		}
+		local ctrkey = {
+			--["BackSpace"] = "BackSpace",
+			["Escape"] = "Escape",
+			["Enter"] = "Enter",
+		}
+		local modkey = {
+			["ShiftLeft"] = "Shift",
+			["ShiftRight"] = "Shift",
+		}
+	
+		-- this table keeps a history of the full input table from the previous frame, not processed
+		local raw_input_history = {}
 
+		-- fetch the existing username
+		local newstring = ""
+		if config[username] then 
+			newstring = config[username]
+		end
+		local bspace_hold = 0
+		local bspace_interv = 0
+		local hlim = 13
+		local ntrvl = 4
 
+		local char_limit = 15
 
-		--[[while true do
-			local pressedbutton = input.get()
-			if pressedbutton["A"] == true then --this does work for the specific letter
-				print(pressedbutton)
+		while true do
+			-- maintain controller awareness in this scene
+			proc_ctrl()
+			-- raw_input -> new_input -> proc_input
+			local raw_input = input.get()
+			local new_input = {}
+			local mod_input = {}
+			local ctr_input = {}
+
+			-- populate new_input, mod_input
+			-- this adds inputs into the new_input table only if it's a single press and not a hold
+			for kk,vv in pairs(raw_input) do
+				-- recognize input if it wasn't held on the previous frame
+				if not raw_input_history[kk] then
+					new_input[kk] = vv
+				end
+				-- check for modifier keys such as Shift. This does not ignore held inputs
+				if modkey[kk] then
+					mod_input[modkey[kk]] = modkey[kk]
+				end
+
+				-- accept held Backspace after a few frames, to clear the name entry quickly
+				if kk == "BackSpace" then
+					if raw_input_history[kk] then
+						bspace_hold = bspace_hold + 1
+					else
+						bspace_hold = 0
+					end
+					if bspace_hold >= hlim then
+						bspace_hold = hlim
+						if bspace_interv < 1 then
+							new_input[kk] = vv
+							bspace_interv = ntrvl
+						else
+							bspace_interv = bspace_interv - 1
+						end
+					end
+				end
+
+			end
+			-- detect released keys for exit condition inputs
+			--	it's like the above loop but comparing input history in reverse
+			for kk,vv in pairs(raw_input_history) do
+				if not raw_input[kk] then
+					if ctrkey[kk] then 
+						ctr_input[kk] = ctrkey[kk]
+					end
+				end
 			end
 
-			--if validkey[] then
-			--	print(validkey[])
-			--end
+			-- update input history with the current frame's inputs
+			raw_input_history = raw_input
+
+			-- populate proc_input (after getting just the new inputs on this frame)
+			-- convert the table values to the strings that will be used in-game
+			local proc_input = {}
+			for kk,vv in pairs(new_input) do
+				if validkey[kk] then
+					proc_input[validkey[kk]] = validkey[kk]
+				elseif kk == "BackSpace" then
+					ctr_input["BackSpace"] = "BackSpace"
+				end
+			end
+
+
+			--[[debug code, prints pressed keys
+			for kk,vv in pairs(proc_input) do
+				if mod_input["Shift"] then
+					print(string.upper(proc_input[kk]))
+				else
+					print(proc_input[kk])
+				end
+			end]]
+
+			--[[debug code, prints any input name recognized by bizhawk
+			local asdasdasd = 0
+			for kk,vv in pairs(new_input) do
+				asdasdasd = asdasdasd + 1
+			end
+			if asdasdasd > 0 then
+				print(new_input)
+			end]]
+
+
+			-- implement the backspace key
+			if ctr_input["BackSpace"] then
+				if string.len(newstring) > 0 then
+					newstring = newstring:sub(1, -2)
+				end
+			end
+
+			-- append new keypresses to the username string
+			if string.len(newstring) < char_limit then
+				for kk,vv in pairs(proc_input) do
+					if mod_input["Shift"] then
+						newstring = (newstring .. string.upper(proc_input[kk]))
+					else
+						newstring = (newstring .. proc_input[kk])
+					end
+				end
+			end
+
+			local print_x = 120
+			local print_y = 40
+				local rectang_len = 120
+			gui.drawRectangle(print_x - rectang_len/2, print_y -2, rectang_len, 19, 0xFF111111, 0xFF212121)
+			gui.drawText(print_x, print_y, newstring, nil,nil,nil,nil, "Center")
+
+
+			local print_x = 10
+			local print_y = 115
+			local v_sep = 24
+
+			gui.drawRectangle(print_x -3, print_y	, 46, 15, 0xFF111111, 0xFF212121)
+			gui.drawRectangle(print_x -3, print_y +v_sep, 46, 15, 0xFF111111, 0xFF212121)
+			gui.drawText(print_x +20, print_y, "ENTER", nil,nil,nil,nil, "Center")
+			gui.drawText(print_x +20, print_y +v_sep, "ESC", nil,nil,nil,nil, "Center")
+
+			gui.drawText(print_x +48, 1+print_y, sm_cn_saveprompt, nil,nil,12,"Arial")
+			gui.drawText(print_x +48, 1+print_y +v_sep, sm_cn_cancelprompt, nil,nil,12,"Arial")
+
+
+
+			-- exit condition without saving changes
+			if ctr_input["Escape"] then
+				break
+			end
+
+			if ctr_input["Enter"] then
+				local isok, reason = christian_server(newstring)
+				if isok then
+					saveconfig(username, newstring)
+					playername = config[username]	-- update global username variable
+				end
+				proc_ctrl()
+				break
+			end
 
 			emu.frameadvance()
-		end]]
+		end
 	end
 
 
@@ -906,7 +1115,6 @@ end
 		["JP"] = " の正規ROMを\n検索してください",
 		["GER"] = "Wähle eine frische Kopie des Spiels:"
 		}
-
 		-- e
 		str_romprompt2 = {
 		["ENG"] = "Press [ A ] to Locate ROM",
@@ -915,9 +1123,27 @@ end
 		["GER"] = "Drücke A, um eine ROM auszuwählen."
 		}
 
-
 		str_romprompt1 = str_romprompt1[l]
 		str_romprompt2 = str_romprompt2[l]
+
+
+
+		sm_cn_saveprompt = {
+			["ENG"] = "save changes",
+			["ESP"] = "",
+			["JP"] = "",
+			["GER"] = "",
+			}
+
+		sm_cn_cancelprompt = {
+			["ENG"] = "cancel",
+			["ESP"] = "",
+			["JP"] = "",
+			["GER"] = "",
+			}
+
+		sm_cn_saveprompt	= sm_cn_saveprompt[l]
+		sm_cn_cancelprompt	= sm_cn_cancelprompt[l]
 
 
 		close_tojp()
