@@ -1,0 +1,11 @@
+"AddonInfo"
+{
+	"name"				"Word Buster"
+	"version"			"1.0"
+	"up_date"			"December 31st 2014"
+	"author_name"		        "_FR_Starfox64"
+	"author_email"		        "louisdijon21@yahoo.fr"
+	"author_url"		        ""
+	"info"				"Bad words filter for your server!"
+	"override"			"0"
+}

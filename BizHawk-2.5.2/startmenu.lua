@@ -5,6 +5,7 @@ emu.limitframerate(true)
 client.speedmode(100)
 client.enablerewind(false)
 client.frameskip(0)
+wordBuster = require("wordbuster/wordbuster")
 
 --JP text converter code
 	--UTF8 -> Shift-JIS library sourced from AoiSaya, licensed under MIT
@@ -613,6 +614,9 @@ end
 		end
 		if string.len(string_arg) < 3 then
 			return false, "length"
+		end
+		if wordBuster.Scan(string_arg) then
+			return false, "censored"
 		end
 
 		return true
