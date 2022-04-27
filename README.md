@@ -1,5 +1,5 @@
 # DEVELOPMENT HAS MOVED
-### Follow the new development here: https://github.com/murkland/tango2  
+### Follow the new development here: https://github.com/murkland/tango  
 
 The netcode implementation in this old repository makes use of the Lua scripting feature provided by Bizhawk. Bizhawk is a general-purpose emulator frontend that uses the mgba core to run GBA games. The Lua environment in Bizhawk ended up enabling a lot of features in this project that I didn't really expect to be possible, but the environment still has its limits, and the performance cost of running Bizhawk left much to be desired. Bizhawk is a large program meant for much more than just GBA games, so it was not well suited to the extremely specialized needs of a good netcode implementation. What we got with Bizhawk was better than anything we had before, but we can do even better.
 
