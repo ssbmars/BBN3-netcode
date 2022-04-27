@@ -8,12 +8,13 @@ With that said, I have some good news. A brand new mgba frontend is being develo
 The new project is named Tango, which used to be the planned name for the Lua version before it was replaced. You might still see references to "tango" in the Lua code, but keep in mind that this old project is not what people are talking about when they refer to Tango.  
 
 For those curious, this is a non-exhaustive list of benefits that Tango will have over this old project.  
-• Cross-platform, able to support Linux, Windows, and Mac.  
-• Portable, no prerequisite installations required. It's a much smaller download.  
+• Cross-platform, currently runs on Windows and Mac, has fewer hurdles for supporting additional platforms.  
+• Easier setup, no prerequisite installations required. It's a much smaller download.  
 • The frontend is lightweight and significantly faster.  
-• Solutions can be more specialized, for example the higher level code in Tango that hooks into the gba's code makes use of software breakpoints that have no resource cost while the game is not passing over a hooked line of code. Conversely, the method of hooking a gba game with Lua code in Bizhawk incurred a major performance cost that was always active, even when the game was not running any Lua code.  
 • You get to directly run a real exe file to launch Tango instead of running a .bat file. Tango also doesn't have a "Lua Console" window that needs to remain open in order for the netcode to work.  
+• The Tango client supports automatic updates.  
 • Tango has its own mascot, and it's Bingus the cat.  
+• Solutions can be more specialized, for example the higher level code in Tango that hooks into the gba's code makes use of software breakpoints that have no resource cost while the game is not passing over a hooked line of code. Conversely, the method of hooking a gba game with Lua code in Bizhawk incurred a major performance cost that was always in effect, even when the game was not passing over hooked addresses or running any Lua code.  
 
 
 # Experimental BBN3 Netplay
