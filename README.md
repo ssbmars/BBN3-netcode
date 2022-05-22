@@ -9,7 +9,7 @@ The new project is named Tango, which used to be the planned name for the Lua ve
 
 For those curious, this is a non-exhaustive list of benefits that Tango will have over this old project.  
 • Cross-platform, currently runs on Windows and Mac, has fewer hurdles for supporting additional platforms.  
-• Easier setup, no prerequisite installations required. It's a much smaller download.  
+• Easier setup with just one installer and a built-in setup guide, no prerequisite installations required.  
 • The frontend is lightweight and significantly faster.  
 • You get to directly run a real exe file to launch Tango instead of running a .bat file. Tango also doesn't have a "Lua Console" window that needs to remain open in order for the netcode to work.  
 • The Tango client supports automatic updates.  
